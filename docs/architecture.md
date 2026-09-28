@@ -223,15 +223,19 @@ const cp = await createNodeControlPlane(await nodeDefaults(config, {
 }));
 ```
 
-`apps/main-node/src/control-plane.ts` exports
-`createNodeControlPlane(components)`, the Node composition root: build the
-stores, Session runtimes and background workers on the components, mount
-route bundles, and return a handle that owns every resource (`app`, `fetch`,
-`start`, `stop`, `components`). Official application modules are installed
-on one `createNodePlatform` graph, so a workspace has one App, one clock,
-one id generator (`src/managed-ids.ts` owns the prefix table) and one set of
-stores; route bundles resolve their ports from that App per request. The
-sandbox provider's own namespace (`SANDBOX_PROVIDER`, `E2B_*`, …) stays
+`apps/main-node/src/control-plane.ts` is the side-effect-free public export
+for `createNodeControlPlane(components)` and its handle types. Its assembly
+lives in `src/modules/`: `node-assembly.ts` owns the lifecycle and scheduler;
+`node-foundation.ts` builds observability, stores, blobs and the legacy
+Session registry; `node-managed.ts` builds the official Session runtime and
+the single managed platform graph; `node-runtime.ts` combines those stages
+with services and API key storage; `node-http.ts` mounts the existing routes,
+integration gateway and console. The resulting handle owns every resource
+(`app`, `fetch`, `start`, `stop`, `components`). This split does **not** change
+which optional subsystems are mounted; their migration to openmatter is
+separate. A workspace still has one App, one clock, one id generator
+(`src/managed-ids.ts` owns the prefix table) and one set of stores. The
+sandbox provider's namespace (`SANDBOX_PROVIDER`, `E2B_*`, …) remains
 env-shaped as `config.sandbox.environment` because `SandboxFactory`'s public
 contract is; supplying `sandbox` bypasses it.
 

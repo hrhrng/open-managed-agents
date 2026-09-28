@@ -66,7 +66,7 @@ describe("managed id generator", () => {
 
 describe("Node control plane composition", () => {
   it("assembles one managed platform graph per process", () => {
-    const source = readFileSync(resolve(__dirname, "../src/control-plane.ts"), "utf8");
+    const source = readFileSync(resolve(__dirname, "../src/modules/node-managed.ts"), "utf8");
     const calls = source.match(/createNodePlatform\(/g) ?? [];
     expect(calls).toHaveLength(1);
     expect(source).not.toMatch(/managed(Agents|EnvironmentWork|Deployments|Dreams|Tunnels|Skills|Credentials)Platform\b/);

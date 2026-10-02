@@ -4,6 +4,7 @@ import type {
   FindRuntimeProjectionSession,
   ProjectSessionRuntimeState,
   ProjectSessionRuntimeStateResult,
+  ProjectionEventIdCollision,
   SessionRuntimeProjectionPersistencePort,
   SessionThread,
 } from "@open-managed-agents/managed-agents-application";
@@ -34,16 +35,34 @@ function storedSession(row: ProjectionSessionRow): StoredSession {
   };
 }
 
+export type ProjectionEventIdCollisionLog = ProjectionEventIdCollision & {
+  op: "session_runtime_projection.event_id_collision";
+  workspaceId: string;
+  sessionId: string;
+};
+
+function defaultProjectionCollisionWarn(entry: ProjectionEventIdCollisionLog): void {
+  console.warn({
+    ...entry,
+    msg: "Runtime projection kept the first event for a colliding id",
+  });
+}
+
 export class SqlSessionRuntimeProjectionPersistence
   implements SessionRuntimeProjectionPersistencePort
 {
   readonly #now: () => Date;
+  readonly #warn: (entry: ProjectionEventIdCollisionLog) => void;
 
   constructor(
     private readonly client: SqlClient,
-    options: { now?: () => Date } = {},
+    options: {
+      now?: () => Date;
+      warn?: (entry: ProjectionEventIdCollisionLog) => void;
+    } = {},
   ) {
     this.#now = options.now ?? (() => new Date());
+    this.#warn = options.warn ?? defaultProjectionCollisionWarn;
   }
 
   async findCurrent(
@@ -132,13 +151,35 @@ export class SqlSessionRuntimeProjectionPersistence
       const exactReplay = existingEvents.every((row, index) =>
         row !== null && JSON.stringify(decodeSessionEventDocument(row.document).event) === JSON.stringify(input.events[index])
       );
-      if (!exactReplay) {
-        throw new Error(
-          "Runtime projection event IDs collide with a different or partial batch",
-        );
-      }
       if (!await this.isFenceActive(input, now)) {
         return { type: "execution_fence_lost" };
+      }
+      if (!exactReplay) {
+        // Event id is the identity of a committed fact. Tool events use the
+        // provider toolCallId, so a lease-loss rerun projects that same id
+        // with a new processed_at. Keep the first document: processed_at is
+        // the history order key, and rewriting it would move the original
+        // call relative to events already stored after it. A partial batch
+        // is not applied either; the session revision update is atomic with
+        // the whole batch.
+        const eventIds = input.events.flatMap((event, index) =>
+          existingEvents[index] === null ? [] : [event.id],
+        );
+        const collision: ProjectionEventIdCollision = {
+          _tag: "ProjectionEventIdCollision",
+          ok: false,
+          reason: "collision",
+          type: "event_id_collision",
+          kept: "first",
+          eventIds,
+        };
+        this.#warn({
+          ...collision,
+          op: "session_runtime_projection.event_id_collision",
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+        });
+        return collision;
       }
       const current = await this.findCurrent(input);
       return current === null

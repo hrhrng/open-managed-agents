@@ -2,6 +2,7 @@ import type { Session } from "../domain/session";
 import type { StoredSession } from "@open-managed-agents/session-store";
 import type {
   EnvironmentWorkExecutionFence,
+  ProjectionEventIdCollision,
   RuntimeProducedSessionEvent,
   SessionExecutionFence,
 } from "./port";
@@ -23,7 +24,8 @@ export type ProjectSessionRuntimeStateResult =
   | { type: "projected"; record: StoredSession }
   | { type: "not_found" }
   | { type: "execution_fence_lost" }
-  | { type: "revision_conflict"; actualRevision: number };
+  | { type: "revision_conflict"; actualRevision: number }
+  | ProjectionEventIdCollision;
 
 export interface SessionRuntimeProjectionPersistencePort {
   findCurrent(

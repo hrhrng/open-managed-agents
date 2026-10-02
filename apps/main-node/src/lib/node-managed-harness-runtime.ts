@@ -21,6 +21,7 @@ import {
   encodeRuntimeHistoryEvent,
   encodeRuntimeSessionEvent,
 } from "@open-managed-agents/managed-agents-adapters-runtime";
+import { getLogger } from "@open-managed-agents/observability";
 
 type UnstampedRuntimeProducedSessionEvent =
   RuntimeProducedSessionEvent extends infer Event
@@ -235,6 +236,8 @@ export interface ManagedNodeHarnessRuntimeInput {
   output(frame: unknown): Promise<void>;
   clock: { now(): Date };
   ids: { nextEventId(): string };
+  /** Observes an output rejection. The default logs it and does not rethrow. */
+  onOutputError?(error: unknown): void;
 }
 
 /** History is read back `ORDER BY processed_at` (millisecond precision) and
@@ -287,7 +290,9 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
     if (applicationEvent !== null) {
       this.applicationHistoryEvents.push(applicationEvent);
     }
-    void this.enqueue(frame);
+    void this.enqueue(frame).catch((error: unknown) => {
+      this.reportOutputFailure(error);
+    });
   };
 
   broadcastProducedEvent(event: UnstampedRuntimeProducedSessionEvent): string {
@@ -300,8 +305,31 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
     if (stamped.type.startsWith("agent.")) this.agentEventCount += 1;
     this.history.append(frame);
     this.applicationHistoryEvents.push(stamped);
-    void this.enqueue(frame);
+    void this.enqueue(frame).catch((error: unknown) => {
+      this.reportOutputFailure(error);
+    });
     return stamped.id;
+  }
+
+  /** `broadcast` does not await output. A rejection here used to be unhandled
+   * and took down the process (projection collisions, lost fences). */
+  private reportOutputFailure(error: unknown): void {
+    try {
+      if (this.input.onOutputError !== undefined) {
+        this.input.onOutputError(error);
+        return;
+      }
+      getLogger("managed-node-harness").error(
+        {
+          err: error,
+          op: "main-node.harness.output_failed",
+          _tag: "HarnessOutputFailed",
+        },
+        "Harness output failed",
+      );
+    } catch {
+      // A broken observer must not become the next unhandled rejection.
+    }
   }
 
   /** Event history is read back ordered by `processed_at` (ms precision) and

@@ -568,7 +568,11 @@ export async function createManagedNodeRuntime(
     projectionFor: (workspaceId) =>
       new SessionRuntimeProjectionApplicationService({
         workspaceId,
-        persistence: new SqlSessionRuntimeProjectionPersistence(sql),
+        persistence: new SqlSessionRuntimeProjectionPersistence(sql, {
+          warn: (entry) => {
+            logger.warn(entry, "Runtime projection kept the first event for a colliding id");
+          },
+        }),
       }),
   });
   const managedSessionExecutionWorker = new NodeSessionExecutionWorker({
@@ -579,8 +583,16 @@ export async function createManagedNodeRuntime(
         await managedRuntimeDriver.accept({ ...input, executionFence: fence });
       },
       cancel: async (input) => {
-        managedRuntimeDriver.cancel({ workspaceId: input.workspaceId, sessionId: input.sessionId, reason: input.reason });
+        managedRuntimeDriver.cancel({
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          reason: input.reason,
+          attemptId: input.fence.attemptId,
+        });
         managedRuntimeRunner.cancel({ workspaceId: input.workspaceId, sessionId: input.sessionId, reason: input.reason });
+      },
+      releasePendingStartCancel: (input) => {
+        managedRuntimeDriver.releasePendingStartCancel(input);
       },
     },
     ownerId: config.execution.ownerId,

@@ -1843,6 +1843,8 @@ export class McpProxyRpc extends WorkerEntrypoint<Env> {
       if (result.type === "recorded") return { type: "recorded" };
       if (result.type === "not_found") return { type: "not_found" };
       if (result.type === "execution_fence_lost") return { type: "version_conflict" };
+      // Identity is already durable. Retrying would collide again.
+      if (result.type === "event_id_collision") return { type: "recorded" };
     }
     return { type: "version_conflict" };
   }

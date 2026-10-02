@@ -78,6 +78,14 @@ export async function ingestEnvironmentWorkRuntimeEvents(input: {
     if (result.type === "version_conflict") continue;
     if (result.type === "not_found") return { type: "not_found" };
     if (result.type === "execution_fence_lost") return { type: "stale_claim" };
+    // The first committed body wins. Do not publish the divergent replay,
+    // and do not ask the sandbox to retry an id that will never insert.
+    if (result.type === "event_id_collision") {
+      return {
+        type: "recorded",
+        eventIds: decoded.events.map((event) => event.id),
+      };
+    }
     for (const event of decoded.events) await input.publish(event);
     return { type: "recorded", eventIds: decoded.events.map((event) => event.id) };
   }

@@ -125,6 +125,7 @@ export class SessionRuntimeProjectionApplicationService
         message: `Session changed concurrently at revision ${projected.actualRevision}`,
       };
     }
+    if (projected.type === "event_id_collision") return projected;
     return { type: "recorded", session: projected.record.session };
   }
 }

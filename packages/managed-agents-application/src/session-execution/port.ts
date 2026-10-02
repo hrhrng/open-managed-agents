@@ -46,11 +46,25 @@ export interface RecordSessionRuntimeEventsCommand {
   environmentWorkFence?: EnvironmentWorkExecutionFence;
 }
 
+/** Same event id was already committed with a different body.
+ *  `kept: "first"` means the stored document was not rewritten. Shaped as a
+ *  tagged result so a later Effect migration can wrap it without a redesign.
+ */
+export type ProjectionEventIdCollision = {
+  _tag: "ProjectionEventIdCollision";
+  ok: false;
+  reason: "collision";
+  type: "event_id_collision";
+  kept: "first";
+  eventIds: string[];
+};
+
 export type RecordSessionRuntimeEventsResult =
   | { type: "recorded"; session: Session }
   | { type: "not_found" }
   | { type: "execution_fence_lost" }
-  | { type: "version_conflict"; message: string };
+  | { type: "version_conflict"; message: string }
+  | ProjectionEventIdCollision;
 
 export interface SessionRuntimeProjectionApplicationPort {
   recordSessionRuntimeEvents(

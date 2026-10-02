@@ -32,6 +32,12 @@ export interface CancelNodeSessionExecution {
 export interface NodeSessionExecutionRuntime {
   run(input: RunNodeSessionExecution): Promise<void>;
   cancel(input: CancelNodeSessionExecution): Promise<void>;
+  /** Drops a cancel recorded before `run` when this attempt will not enter it. */
+  releasePendingStartCancel?(input: {
+    workspaceId: string;
+    sessionId: string;
+    attemptId: string;
+  }): void;
 }
 
 export interface NodeSessionExecutionWorkerDependencies {
@@ -266,22 +272,40 @@ export class NodeSessionExecutionWorker implements SessionEventDispatchPort {
       if (context === null) {
         throw new Error(`Session ${active.execution.sessionId} execution context was not found`);
       }
-      await this.dependencies.runtime.run({
-        executionId: active.execution.id,
-        workspaceId: active.execution.workspaceId,
-        sessionId: active.execution.sessionId,
-        session: context.session,
-        environment: context.environment,
-        events: active.execution.events,
-        fence: active.fence,
-      });
-      if (active.cancelled) outcome = "cancelled";
+      // Interrupt or lease loss can land while context is loading, before
+      // accept() registers its abort controller. Running anyway finishes the
+      // turn and still settles it as cancelled. The driver remembers the
+      // cancel for this attempt in case run is entered; the finally below
+      // drops that memory when this attempt does not accept.
+      if (active.cancelled) {
+        outcome = "cancelled";
+      } else {
+        await this.dependencies.runtime.run({
+          executionId: active.execution.id,
+          workspaceId: active.execution.workspaceId,
+          sessionId: active.execution.sessionId,
+          session: context.session,
+          environment: context.environment,
+          events: active.execution.events,
+          fence: active.fence,
+        });
+        if (active.cancelled) outcome = "cancelled";
+      }
     } catch (error) {
       outcome = active.cancelled ? "cancelled" : "failed";
       failure = errorMessage(error);
     } finally {
       clearInterval(heartbeat);
       await heartbeatChain;
+      try {
+        this.dependencies.runtime.releasePendingStartCancel?.({
+          workspaceId: active.execution.workspaceId,
+          sessionId: active.execution.sessionId,
+          attemptId: active.fence.attemptId,
+        });
+      } catch (error) {
+        this.#reportError(error);
+      }
     }
     if (active.leaseLost) return;
     const settled = await this.dependencies.coordinator.settle({

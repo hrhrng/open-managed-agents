@@ -239,6 +239,8 @@ export class DefaultNodeManagedSessionRuntimeDriver
   private readonly starts = new ScopedSessionMap<Promise<void>>();
   private readonly executionFences = new ScopedSessionMap<SessionExecutionFence>();
   private readonly startAborts = new ScopedSessionMap<AbortController>();
+  /** Cancels that arrived before `accept` registered `startAborts`, keyed by attempt. */
+  private readonly pendingAttemptCancels = new ScopedSessionMap<Map<string, string>>();
   private readonly eventStamps = new ScopedSessionMap<() => string>();
   private readonly realtime: SessionRealtimeHub;
 
@@ -271,10 +273,36 @@ export class DefaultNodeManagedSessionRuntimeDriver
   }
 
   /** Stops an in-flight startup retry. `lease_lost` stays silent: another
-   * owner re-runs the execution. A user interrupt that already announced
-   * `retrying` returns the session to idle so it does not stay rescheduling. */
-  cancel(input: { workspaceId: string; sessionId: string; reason?: string }): void {
-    this.startAborts.get(input)?.abort(cancellationError(input.reason ?? "cancelled"));
+   * owner re-runs the execution. A user interrupt returns the session to
+   * idle, including one that arrives before startup has announced
+   * `retrying`. A cancel that arrives before `startAborts` is registered is
+   * remembered for that attempt and applied when `accept` creates the
+   * controller. */
+  cancel(input: {
+    workspaceId: string;
+    sessionId: string;
+    reason?: string;
+    /** Attempt that has not registered `startAborts` yet. Applied when that attempt accepts. */
+    attemptId?: string;
+  }): void {
+    const reason = input.reason ?? "cancelled";
+    const controller = this.startAborts.get(input);
+    if (controller !== undefined) {
+      controller.abort(cancellationError(reason));
+      return;
+    }
+    if (input.attemptId !== undefined) {
+      this.rememberAttemptCancel(input, input.attemptId, reason);
+    }
+  }
+
+  /** Drops a cancel remembered for an attempt that will not accept. */
+  releasePendingStartCancel(input: {
+    workspaceId: string;
+    sessionId: string;
+    attemptId: string;
+  }): void {
+    this.takeAttemptCancel(input, input.attemptId);
   }
 
   async stop(input: StopNodeManagedSessionRuntime): Promise<void> {
@@ -304,17 +332,23 @@ export class DefaultNodeManagedSessionRuntimeDriver
     }
     if (fence !== undefined) this.executionFences.set(input, fence);
     const abortController = new AbortController();
+    // Register before reading a remembered cancel so a cancel that arrives
+    // in between aborts this controller directly instead of being stored
+    // and then missed.
     this.startAborts.set(input, abortController);
+    const pending = fence?.attemptId === undefined
+      ? undefined
+      : this.takeAttemptCancel(input, fence.attemptId);
+    if (pending !== undefined) abortController.abort(cancellationError(pending));
     const signal = abortController.signal;
     try {
       const retry = this.dependencies.startRetry ?? {
         attempts: 3,
         delayMs: (attempt: number) => Math.min(30_000, 2_000 * 2 ** (attempt - 1)),
       };
-      let announcedRetry = false;
       for (let attempt = 1; ; attempt++) {
         if (signal.aborted) {
-          await this.finishCancelledStart(input, signal, announcedRetry);
+          await this.finishCancelledStart(input, signal);
           throw abortedError(signal);
         }
         try {
@@ -330,7 +364,7 @@ export class DefaultNodeManagedSessionRuntimeDriver
           break;
         } catch (error) {
           if (signal.aborted || isAbortError(error)) {
-            await this.finishCancelledStart(input, signal, announcedRetry);
+            await this.finishCancelledStart(input, signal);
             throw signal.aborted ? abortedError(signal) : error;
           }
           if (attempt >= Math.max(1, retry.attempts)) {
@@ -338,20 +372,19 @@ export class DefaultNodeManagedSessionRuntimeDriver
             throw error;
           }
           await this.projectStartFailure(input, error, "retrying");
-          announcedRetry = true;
           if (signal.aborted) {
-            await this.finishCancelledStart(input, signal, announcedRetry);
+            await this.finishCancelledStart(input, signal);
             throw abortedError(signal);
           }
           await abortableDelay(retry.delayMs(attempt), signal);
           if (signal.aborted) {
-            await this.finishCancelledStart(input, signal, announcedRetry);
+            await this.finishCancelledStart(input, signal);
             throw abortedError(signal);
           }
         }
       }
       if (signal.aborted) {
-        await this.finishCancelledStart(input, signal, announcedRetry);
+        await this.finishCancelledStart(input, signal);
         throw abortedError(signal);
       }
       const { executionFence: _executionFence, ...accepted } = input;
@@ -373,13 +406,14 @@ export class DefaultNodeManagedSessionRuntimeDriver
   private async finishCancelledStart(
     input: ExecuteNodeManagedSessionEvents,
     signal: AbortSignal,
-    announcedRetry: boolean,
   ): Promise<void> {
     const reason = cancellationReason(signal);
     // lease_lost: the new owner re-runs the turn. session_*: the session is
-    // going away. Either way a trailing idle from this attempt would race
-    // the owner that still holds the session.
-    if (!announcedRetry || reason === "lease_lost" || reason?.startsWith("session_")) return;
+    // going away. A trailing idle from this attempt would race the owner
+    // that still holds the session. Every other cancellation, including an
+    // interrupt before startup has announced `retrying`, returns the session
+    // to idle.
+    if (reason === "lease_lost" || reason?.startsWith("session_")) return;
     const nextEventId = () => this.dependencies.ids?.nextEventId()
       ?? `event_${randomUUID()}`;
     await this.enqueueOutput(
@@ -497,6 +531,9 @@ export class DefaultNodeManagedSessionRuntimeDriver
             `Session ${workspaceId}/${sessionId} execution fence was lost`,
           );
         }
+        // Keep-first. Retrying cannot insert a second body for this id, and
+        // publishing the replay would show a processed_at history will not store.
+        if (projected.type === "event_id_collision") return;
         if (attempt === 2) throw new Error(projected.message);
       }
     }
@@ -552,6 +589,31 @@ export class DefaultNodeManagedSessionRuntimeDriver
 
   private closeSession(scope: { workspaceId: string; sessionId: string }): void {
     this.realtime.closeSession(scope);
+  }
+
+  private rememberAttemptCancel(
+    scope: { workspaceId: string; sessionId: string },
+    attemptId: string,
+    reason: string,
+  ): void {
+    let pending = this.pendingAttemptCancels.get(scope);
+    if (pending === undefined) {
+      pending = new Map();
+      this.pendingAttemptCancels.set(scope, pending);
+    }
+    pending.set(attemptId, reason);
+  }
+
+  private takeAttemptCancel(
+    scope: { workspaceId: string; sessionId: string },
+    attemptId: string,
+  ): string | undefined {
+    const pending = this.pendingAttemptCancels.get(scope);
+    if (pending === undefined) return undefined;
+    const reason = pending.get(attemptId);
+    pending.delete(attemptId);
+    if (pending.size === 0) this.pendingAttemptCancels.delete(scope);
+    return reason;
   }
 }
 

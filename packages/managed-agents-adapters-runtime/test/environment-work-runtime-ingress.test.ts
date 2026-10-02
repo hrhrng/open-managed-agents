@@ -113,6 +113,25 @@ describe("Environment Work runtime event ingress", () => {
     expect(published).toEqual(["event_01"]);
   });
 
+  it("keeps a colliding replay without publishing the divergent body", async () => {
+    let published = false;
+    await expect(ingestEnvironmentWorkRuntimeEvents({
+      claim,
+      sessionId: claim.sessionId,
+      body: { events: [event] },
+      projection: projection(async () => ({
+        _tag: "ProjectionEventIdCollision",
+        ok: false,
+        reason: "collision",
+        type: "event_id_collision",
+        kept: "first",
+        eventIds: ["event_01"],
+      })),
+      publish: async () => { published = true; },
+    })).resolves.toEqual({ type: "recorded", eventIds: ["event_01"] });
+    expect(published).toBe(false);
+  });
+
   it("fails closed when the atomic Work fence is lost", async () => {
     let published = false;
     await expect(ingestEnvironmentWorkRuntimeEvents({

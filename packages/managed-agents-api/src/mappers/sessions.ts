@@ -186,6 +186,10 @@ export function toListSessionsQuery(query: SessionListQuery): ListSessionsQuery 
     ...(query.memory_store_id !== undefined && {
       memoryStoreId: query.memory_store_id,
     }),
+    ...(query.metadata_key !== undefined &&
+      query.metadata_value !== undefined && {
+        metadata: { key: query.metadata_key, value: query.metadata_value },
+      }),
     ...(query.order !== undefined && { order: query.order }),
     ...(query.statuses !== undefined && { statuses: query.statuses }),
   };

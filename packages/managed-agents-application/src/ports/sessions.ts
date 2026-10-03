@@ -81,6 +81,7 @@ export interface ListSessionsQuery {
   deploymentId?: string;
   includeArchived?: boolean;
   memoryStoreId?: string;
+  metadata?: { key: string; value: string };
   order?: "asc" | "desc";
   statuses?: SessionStatus[];
 }

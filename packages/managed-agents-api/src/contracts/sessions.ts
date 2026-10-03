@@ -33,7 +33,10 @@ export type SessionCreateBody = Omit<OfficialSessionCreateBody, "agent"> & {
         mcp_servers?: OpenMaMcpServerBody[];
       });
 };
-export type SessionListQuery = Omit<SessionListParams, "betas">;
+export type SessionListQuery = Omit<SessionListParams, "betas"> & {
+  metadata_key?: string;
+  metadata_value?: string;
+};
 type OfficialSessionUpdateBody = Omit<SessionUpdateParams, "betas">;
 export type SessionUpdateBody = Omit<OfficialSessionUpdateBody, "agent"> & {
   agent?: Omit<NonNullable<OfficialSessionUpdateBody["agent"]>, "mcp_servers"> & {
@@ -173,12 +176,24 @@ export const sessionListQuerySchema = z
       .transform((value) => value === "true")
       .optional(),
     memory_store_id: z.string().min(1).optional(),
+    metadata_key: z.string().min(1).optional(),
+    metadata_value: z.string().optional(),
     order: z.enum(["asc", "desc"]).optional(),
     statuses: z
       .array(z.enum(["rescheduling", "running", "idle", "terminated"]))
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((query, context) => {
+    const hasKey = query.metadata_key !== undefined;
+    const hasValue = query.metadata_value !== undefined;
+    if (hasKey === hasValue) return;
+    context.addIssue({
+      code: "custom",
+      message: "metadata_key and metadata_value must be provided together",
+      path: [hasKey ? "metadata_value" : "metadata_key"],
+    });
+  });
 
 export { sessionAgentResponseSchema } from "./agent-response-components";
 

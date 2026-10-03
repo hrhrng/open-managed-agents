@@ -66,6 +66,8 @@ export function buildSessionRoutes(
       deployment_id: c.req.query("deployment_id"),
       include_archived: c.req.query("include_archived"),
       memory_store_id: c.req.query("memory_store_id"),
+      metadata_key: c.req.query("metadata_key"),
+      metadata_value: c.req.query("metadata_value"),
       order: c.req.query("order"),
       statuses: c.req.queries("statuses[]"),
     });

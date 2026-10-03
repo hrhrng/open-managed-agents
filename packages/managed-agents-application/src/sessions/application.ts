@@ -537,6 +537,12 @@ export class SessionsApplicationService
   }
 
   async listSessions(query: ListSessionsQuery): Promise<ListSessionsResult> {
+    if (query.metadata !== undefined && query.metadata.key.length === 0) {
+      return {
+        type: "invalid_request",
+        message: "Session metadata filter key must not be empty",
+      };
+    }
     const order = query.order ?? "desc";
     const cursor =
       query.cursor === undefined ? undefined : decodeSessionCursor(query.cursor);
@@ -574,6 +580,7 @@ export class SessionsApplicationService
       ...(query.memoryStoreId !== undefined && {
         memoryStoreId: query.memoryStoreId,
       }),
+      ...(query.metadata !== undefined && { metadata: query.metadata }),
       ...(query.statuses !== undefined && { statuses: query.statuses }),
       ...(cursor !== undefined && {
         position: {

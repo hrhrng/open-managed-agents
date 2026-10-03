@@ -6,6 +6,7 @@ import { resolveKnownAgent } from "@open-managed-agents/acp-runtime/registry";
 
 import { setupClaudeConfigDir } from "./claude-config-dir.js";
 import {
+  acpProcessCwd,
   ensureSessionCwd,
   removeSessionCwd,
   writeBundle,
@@ -68,7 +69,8 @@ async function prepareNodeSession(input: SessionManagerPreparationInput) {
     );
   }
 
-  const sessionCwd = await ensureSessionCwd(input.command.sessionId);
+  const scratchDir = await ensureSessionCwd(input.command.sessionId);
+  const processCwd = acpProcessCwd(scratchDir, input.command.cwd);
   let blocklist: string[] = [];
   let bundleMcpServers: BundleMcpServer[] = [];
   let bundleEnv: BundleEnvVar[] = [];
@@ -79,7 +81,7 @@ async function prepareNodeSession(input: SessionManagerPreparationInput) {
       agent.id,
     );
     if (bundle) {
-      await writeBundle(sessionCwd, bundle.files);
+      await writeBundle(scratchDir, bundle.files);
       blocklist = bundle.local_skill_blocklist ?? [];
       bundleMcpServers = bundle.mcp_servers ?? [];
       bundleEnv = bundle.env ?? [];
@@ -94,7 +96,7 @@ async function prepareNodeSession(input: SessionManagerPreparationInput) {
   if (agent.id === "claude-acp") {
     try {
       extraEnv.CLAUDE_CONFIG_DIR = await setupClaudeConfigDir(
-        sessionCwd,
+        scratchDir,
         new Set(blocklist),
       );
     } catch (error) {
@@ -119,7 +121,8 @@ async function prepareNodeSession(input: SessionManagerPreparationInput) {
   }));
 
   process.stderr.write(
-    `  → SessionManager.start ${agent.spec.command} cwd=${sessionCwd}` +
+    `  → SessionManager.start ${agent.spec.command} cwd=${processCwd}` +
+      (processCwd === scratchDir ? "" : ` scratch=${scratchDir}`) +
       (extraEnv.CLAUDE_CONFIG_DIR ? ` cfg=${extraEnv.CLAUDE_CONFIG_DIR}` : "") +
       (blocklist.length ? ` blocklist=${blocklist.length}` : "") +
       (mcpServers.length ? ` mcp=${mcpServers.length}` : "") +
@@ -130,7 +133,7 @@ async function prepareNodeSession(input: SessionManagerPreparationInput) {
   return {
     agent: {
       ...agent.spec,
-      cwd: sessionCwd,
+      cwd: processCwd,
       env: scrubAcpSpawnEnv({
         ...(agent.spec.env ?? {}),
         ...envFromBundle,

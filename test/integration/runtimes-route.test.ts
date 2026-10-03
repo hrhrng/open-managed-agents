@@ -22,6 +22,8 @@
 //          tenant_id injected on session.start/.prompt.
 //   4. GET /agents/runtime/me — daemon-facing alternative to the absent
 //      /v1/oma/runtimes/:id, used by daemon-side v1→v2 migration.
+//   5. GET /v1/oma/runtimes — workspace API key: user-bound list,
+//      single-user fallback, multi-user 401, foreign runtime hidden.
 
 import { env, exports } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
@@ -916,5 +918,184 @@ describe("/agents/runtime/* — multi-tenant CLI bridge daemon (step 2)", () => 
         response: { outcome: { outcome: "selected", optionId: "original-choice" } },
       });
     });
+  });
+});
+
+// GET /v1/oma/runtimes — workspace API key auth (OMA-2)
+describe("GET /v1/oma/runtimes — workspace API key", () => {
+  beforeAll(async () => {
+    await api("/health").catch(() => {});
+  });
+
+  async function putWorkspaceApiKey(opts: {
+    plain: string;
+    tenantId: string;
+    userId?: string;
+  }): Promise<void> {
+    const hash = await sha256Hex(opts.plain);
+    await env.CONFIG_KV.put(
+      `apikey:${hash}`,
+      JSON.stringify({
+        id: `ak_${Math.random().toString(36).slice(2, 10)}`,
+        tenant_id: opts.tenantId,
+        ...(opts.userId ? { user_id: opts.userId } : {}),
+        name: "test key",
+        created_at: new Date().toISOString(),
+        credential: { type: "workspace" },
+      }),
+    );
+  }
+
+  async function seedTenantUser(opts: {
+    tenantId: string;
+    userId: string;
+    tenantName?: string;
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    await env.AUTH_DB
+      .prepare(
+        `INSERT OR IGNORE INTO "tenant" (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`,
+      )
+      .bind(opts.tenantId, opts.tenantName ?? opts.tenantId, now * 1000, now * 1000)
+      .run();
+    await env.AUTH_DB
+      .prepare(
+        `INSERT OR REPLACE INTO "user" (id, name, email, emailVerified, tenantId, role, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        opts.userId,
+        "Test User",
+        `${opts.userId}@test.local`,
+        1,
+        opts.tenantId,
+        "owner",
+        now * 1000,
+        now * 1000,
+      )
+      .run();
+    await env.AUTH_DB
+      .prepare(
+        `INSERT OR REPLACE INTO "membership" (user_id, tenant_id, role, created_at) VALUES (?, ?, ?, ?)`,
+      )
+      .bind(opts.userId, opts.tenantId, "owner", now)
+      .run();
+  }
+
+  async function insertRuntimeRow(opts: {
+    runtimeId: string;
+    ownerUserId: string;
+    ownerTenantId: string;
+    hostname?: string;
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    await env.AUTH_DB
+      .prepare(
+        `INSERT OR REPLACE INTO "runtimes"
+          (id, owner_user_id, owner_tenant_id, machine_id, hostname, os, agents_json, version, status, last_heartbeat, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        opts.runtimeId,
+        opts.ownerUserId,
+        opts.ownerTenantId,
+        `machine-${opts.runtimeId}`,
+        opts.hostname ?? "test-host",
+        "darwin",
+        '[{"id":"claude-acp"}]',
+        "0.0.1-test",
+        "online",
+        now,
+        now,
+      )
+      .run();
+  }
+
+  it("user-bound workspace key lists only that user's machines", async () => {
+    const tenantId = `tn_ub_${Math.random().toString(36).slice(2, 8)}`;
+    const userId = `u_ub_${Math.random().toString(36).slice(2, 8)}`;
+    const ridMine = `rt_ub_mine_${Math.random().toString(36).slice(2, 8)}`;
+    const ridOther = `rt_ub_other_${Math.random().toString(36).slice(2, 8)}`;
+    const otherUser = `u_ub_other_${Math.random().toString(36).slice(2, 8)}`;
+
+    await seedTenantUser({ tenantId, userId });
+    await seedTenantUser({ tenantId, userId: otherUser });
+    await insertRuntimeRow({ runtimeId: ridMine, ownerUserId: userId, ownerTenantId: tenantId, hostname: "mine" });
+    await insertRuntimeRow({ runtimeId: ridOther, ownerUserId: otherUser, ownerTenantId: tenantId, hostname: "other" });
+
+    const keyPlain = `oma_ub_${Math.random().toString(36).slice(2)}`;
+    await putWorkspaceApiKey({ plain: keyPlain, tenantId, userId });
+
+    const res = await api("/v1/oma/runtimes", {
+      headers: { "x-api-key": keyPlain },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.runtimes).toHaveLength(1);
+    expect(body.runtimes[0].id).toBe(ridMine);
+    expect(body.runtimes[0].hostname).toBe("mine");
+    expect(body.runtimes[0].status).toBe("online");
+    expect(body.runtimes[0].last_heartbeat).toEqual(expect.any(Number));
+    expect(body.runtimes[0].agents).toEqual([{ id: "claude-acp" }]);
+  });
+
+  it("single-user tenant fills in user_id for a key with no user_id", async () => {
+    const tenantId = `tn_su_${Math.random().toString(36).slice(2, 8)}`;
+    const userId = `u_su_${Math.random().toString(36).slice(2, 8)}`;
+    const rid = `rt_su_${Math.random().toString(36).slice(2, 8)}`;
+
+    await seedTenantUser({ tenantId, userId });
+    await insertRuntimeRow({ runtimeId: rid, ownerUserId: userId, ownerTenantId: tenantId });
+
+    const keyPlain = `oma_su_${Math.random().toString(36).slice(2)}`;
+    await putWorkspaceApiKey({ plain: keyPlain, tenantId });
+
+    const res = await api("/v1/oma/runtimes", { headers: { "x-api-key": keyPlain } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.runtimes.map((r: { id: string }) => r.id)).toEqual([rid]);
+  });
+
+  it("multi-user tenant returns 401 when the key has no user_id", async () => {
+    const tenantId = `tn_mu_${Math.random().toString(36).slice(2, 8)}`;
+    await seedTenantUser({ tenantId, userId: `u_mu_a_${Math.random().toString(36).slice(2, 8)}` });
+    await seedTenantUser({ tenantId, userId: `u_mu_b_${Math.random().toString(36).slice(2, 8)}` });
+
+    const keyPlain = `oma_mu_${Math.random().toString(36).slice(2)}`;
+    await putWorkspaceApiKey({ plain: keyPlain, tenantId });
+
+    const res = await api("/v1/oma/runtimes", { headers: { "x-api-key": keyPlain } });
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toMatchObject({ type: "authentication_error", message: "unauthorized" });
+  });
+
+  it("legacy env API_KEY resolves with no user and gets 401", async () => {
+    const res = await api("/v1/oma/runtimes", { headers: { "x-api-key": "test-key" } });
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toMatchObject({ type: "authentication_error", message: "unauthorized" });
+  });
+
+  it("does not list another user's runtime in the same tenant", async () => {
+    const tenantId = `tn_iso_${Math.random().toString(36).slice(2, 8)}`;
+    const userA = `u_iso_a_${Math.random().toString(36).slice(2, 8)}`;
+    const userB = `u_iso_b_${Math.random().toString(36).slice(2, 8)}`;
+    const ridA = `rt_iso_a_${Math.random().toString(36).slice(2, 8)}`;
+    const ridB = `rt_iso_b_${Math.random().toString(36).slice(2, 8)}`;
+
+    await seedTenantUser({ tenantId, userId: userA });
+    await seedTenantUser({ tenantId, userId: userB });
+    await insertRuntimeRow({ runtimeId: ridA, ownerUserId: userA, ownerTenantId: tenantId });
+    await insertRuntimeRow({ runtimeId: ridB, ownerUserId: userB, ownerTenantId: tenantId });
+
+    const keyPlain = `oma_iso_${Math.random().toString(36).slice(2)}`;
+    await putWorkspaceApiKey({ plain: keyPlain, tenantId, userId: userA });
+
+    const res = await api("/v1/oma/runtimes", { headers: { "x-api-key": keyPlain } });
+    expect(res.status).toBe(200);
+    const ids = (await res.json()).runtimes.map((r: { id: string }) => r.id);
+    expect(ids).toEqual([ridA]);
+    expect(ids).not.toContain(ridB);
   });
 });

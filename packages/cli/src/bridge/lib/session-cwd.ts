@@ -1,18 +1,20 @@
 /**
  * Per-session working directory management.
  *
- * Every spawned ACP agent runs with cwd = `~/.oma/bridge/sessions/<session-id>/`
- * — never the user's pwd. Three reasons:
+ * The scratch dir is always `~/.oma/bridge/sessions/<session-id>/`. The
+ * OMA-rendered bundle (AGENTS.md + skill files) lands there before each
+ * session.start, never in the user's project root.
  *
- *   1. Spawn-cwd injection. The OMA-rendered bundle (AGENTS.md + skill files)
- *      lands in this dir before each session.start, so the ACP agent reads
- *      our prompt + skills via its native discovery convention. We can't
- *      drop those into the user's project root.
- *   2. Isolation. Two parallel sessions don't see each other's transcripts
+ * The ACP process cwd is that scratch dir unless `session.start` carries
+ * `cwd`. When the platform sends a project directory, the child process
+ * starts there and the bundle stays in the scratch dir.
+ *
+ * Other reasons the scratch dir exists:
+ *
+ *   1. Isolation. Two parallel sessions don't see each other's transcripts
  *      or tool-call state.
- *   3. Stable transcript paths. Resume-from-disk needs the cwd to be the
- *      same next time; the user's pwd is whatever terminal they ran
- *      `npx` from this morning.
+ *   2. Stable transcript paths. Resume-from-disk needs a dir that does not
+ *      follow whichever terminal the user ran `npx` from this morning.
  *
  * Lifecycle: dir lifetime is bound to the OMA session. Cleanup happens when
  * the platform tells the daemon `session.dispose` (which fires on
@@ -56,6 +58,18 @@ export async function ensureSessionCwd(sessionId: string): Promise<string> {
   const cwd = join(paths().sessionsDir, dirNameFor(sessionId));
   await mkdir(cwd, { recursive: true });
   return cwd;
+}
+
+/**
+ * Directory passed to the ACP child as its process cwd.
+ *
+ * Absent or blank `session.start.cwd` keeps the historical scratch dir.
+ * A non-blank value is the platform's project directory and is not
+ * created or written by the daemon.
+ */
+export function acpProcessCwd(scratchDir: string, requestedCwd?: string): string {
+  const requested = requestedCwd?.trim();
+  return requested ? requested : scratchDir;
 }
 
 /**

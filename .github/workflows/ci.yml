@@ -15,9 +15,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    # Full repository tests plus browser, storage and MySQL integration now
-    # approach 20 minutes on GitHub runners; allow cleanup to finish.
-    timeout-minutes: 30
+    # Full repository tests plus browser, storage and MySQL integration.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -34,6 +33,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Review gate tests
+        run: node --test scripts/agent-code-review.node-test.mjs
 
       - name: Typecheck
         run: pnpm typecheck
@@ -70,6 +72,9 @@ jobs:
       - name: MySQL integration tests
         run: pnpm test:integration:mysql
 
+      - name: Production frontend build
+        run: pnpm build:console
+
   # Separate from verify so it does not wait on the 20+ minute suite and does
   # not use the Litebox /dev/kvm action. Checkout plus a Node script only.
   release-check:
@@ -98,3 +103,12 @@ jobs:
         env:
           RELEASE_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: node scripts/release-check.mjs
+
+  image-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Build main-node image without publishing
+        run: docker build -f apps/main-node/Dockerfile -t openma/main-node:ci .

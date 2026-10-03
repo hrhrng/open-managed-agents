@@ -5,10 +5,17 @@ image. **It does NOT deploy any worker to a Cloudflare account.**
 
 | Workflow | Purpose |
 |---|---|
-| `ci.yml` | `verify` runs the full suite. `release-check` is a separate short job: changesets, changelog coverage, and unreleased pull requests |
+| `ci.yml` | `verify` runs the full suite including a production frontend build. `release-check` is a separate short job: changesets, changelog coverage, and unreleased pull requests. `image-build` builds the self-host main-node image (no publish) |
+| `agent-review.yml` | independent PR patch review; high/critical findings or reviewer failure block the check |
 | `release.yml` | changeset-driven npm publish for the SDK / CLI packages. `publish` runs `scripts/release-check.mjs --publish` before `pnpm release` |
 | `build-sandbox-image.yml` | builds the agent sandbox base image for OSS users to pull |
 | `build-server-image.yml` | verifies and publishes the Node/Console server image to GHCR under an immutable full-Git-SHA tag; release tags add a human version alias |
+
+## PR quality gate setup
+
+Set the repository secret `ANTHROPIC_API_KEY`, then require both `CI / verify`, `CI / image-build` and `Agent code review / review` in branch protection on `main`. The review check **fails closed** when the secret is absent, the provider is unavailable, or a textual patch is truncated/too large; split oversized PRs. The workflow runs trusted base-revision code via `pull_request_target` and reads PR patches as data only; it never checks out or executes PR code with a secret. PR diff content is sent to Anthropic, so do not submit secrets or other sensitive content in a diff. The agent cannot guarantee correctness; human review remains required.
+
+These checks do not yet certify a two-process Managed Session with shared memory and outputs. Add the real cross-replica durability test before claiming that deployment profile is supported; see `AGENTS.md`. Branch protection is a repository setting and cannot be enabled by committing this workflow alone.
 
 ## Why no deploy workflows?
 

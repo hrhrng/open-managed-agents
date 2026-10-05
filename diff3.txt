@@ -1,0 +1,19 @@
+diff --git a/packages/sessions-store/src/service.ts b/packages/sessions-store/src/service.ts
+index 040f9c8..ae76976 100644
+--- a/packages/sessions-store/src/service.ts
++++ b/packages/sessions-store/src/service.ts
+@@ -191,6 +191,14 @@ export class SessionService {
+     });
+   }
+ 
++  /**
++   * Returns true if the session is currently idle.
++   */
++  async isIdle(opts: { tenantId: string; sessionId: string }): Promise<boolean> {
++    const row = await this.requireSession(opts);
++    return row.status === "idle";
++  }
++
+   async archive(opts: { tenantId: string; sessionId: string }): Promise<SessionRow> {
+     await this.requireSession(opts);
+     return this.repo.archive(opts.tenantId, opts.sessionId, this.clock.nowMs());

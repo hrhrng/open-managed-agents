@@ -418,6 +418,45 @@ export class SessionDO extends DurableObject<Env> {
             },
           };
         },
+        update: async (opts) => {
+          const scope = this._wakeupScope();
+          if (opts.tenantId !== scope.workspaceId || opts.sessionId !== scope.sessionId) {
+            return;
+          }
+
+          let refreshed = this.state.agent_snapshot;
+          if (refreshed && this.state.agent_id) {
+            const services = await getCfServicesForTenant(this.env, this.state.tenant_id);
+            const row = await services.agents.getById({ agentId: this.state.agent_id });
+            if (row) {
+              const { tenant_id: _t, ...published } = row;
+              const prevNonMcp = (refreshed.tools ?? []).filter((t: any) => t.type !== "mcp_toolset");
+              const currentMcp = (published.tools ?? []).filter((t: any) => t.type === "mcp_toolset");
+              refreshed = {
+                  ...refreshed,
+                  mcp_servers: [...(published.mcp_servers ?? [])],
+                  tools: [...prevNonMcp, ...currentMcp] as any,
+              };
+              
+              // 1. Merge into session state directly
+              this.setState({ ...this.state, agent_snapshot: refreshed });
+              
+              // 2. Hydrate standard update flow in SQL DB
+              await services.sessions.update({
+                tenantId: opts.tenantId,
+                sessionId: opts.sessionId,
+                metadata: opts.metadata,
+                agentSnapshot: refreshed,
+              });
+            } else {
+              await services.sessions.update({
+                tenantId: opts.tenantId,
+                sessionId: opts.sessionId,
+                metadata: opts.metadata,
+              });
+            }
+          }
+        },
       },
       scheduler: this._wakeupScheduler,
       events: {
@@ -1598,18 +1637,6 @@ export class SessionDO extends DurableObject<Env> {
       // needs install + snapshot); subsequent messages restore in
       // seconds from the persisted handle.
 
-      return new Response("ok");
-    }
-
-    // PATCH /agent-snapshot — update the live configuration selected by a
-    // publish-time resume without re-running /init. In particular, do not
-    // touch the event log, pending queue, mounted memory, or sandbox state.
-    if (request.method === "PATCH" && url.pathname === "/agent-snapshot") {
-      const body = (await request.json()) as { agent_snapshot?: AgentConfig };
-      if (!body.agent_snapshot) {
-        return new Response("agent_snapshot is required", { status: 400 });
-      }
-      this.setState({ ...this.state, agent_snapshot: body.agent_snapshot });
       return new Response("ok");
     }
 

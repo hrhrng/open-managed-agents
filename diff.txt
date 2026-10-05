@@ -1,0 +1,5 @@
+commit 88bf2376f883ab8afc5f474accf0f7b5bbbe51e3
+Author: Akif245 <abdulakif44570@gmail.com>
+Date:   Mon Sep 14 16:57:24 2026 +0530
+
+    refactor(sessions): add fail-fast idle check and sessions.update() (#89)

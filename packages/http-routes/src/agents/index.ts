@@ -149,6 +149,23 @@ export interface AgentRoutesDeps {
   /** Optional field-size cap check. CF passes apps/main/src/lib/limits;
    *  Node currently passes nothing. */
   validateAgentLimits?: (body: unknown) => { ok: boolean; error?: string };
+  validateTotalToolLimits?: (
+    tenantId: string,
+    body: unknown,
+  ) => Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        error: {
+          error: string;
+          message: string;
+          total_tools: number;
+          limit: number;
+          breakdown: { builtins: number; skills: number; mcp_servers: number };
+        };
+      }
+  >;
+
   /** Active-sessions guard for DELETE — true means "refuse with 409". */
   hasActiveSessionsByAgent?: (
     tenantId: string,
@@ -219,6 +236,12 @@ export function buildAgentRoutes(deps: AgentRoutesDeps) {
     }
 
     const tenantId = c.var.tenant_id;
+
+    if (deps.validateTotalToolLimits) {
+      const toolCheck = await deps.validateTotalToolLimits(tenantId, body);
+      if (!toolCheck.ok) return c.json(toolCheck.error, 400);
+    }
+
     const isLocalRuntime = !!body.runtime_binding;
     if (!isLocalRuntime && deps.validateModel) {
       const r = await deps.validateModel(tenantId, body.model);
@@ -434,6 +457,12 @@ export function buildAgentRoutes(deps: AgentRoutesDeps) {
     if (deps.validateAgentLimits) {
       const limitCheck = deps.validateAgentLimits(body);
       if (!limitCheck.ok) return c.json({ error: limitCheck.error }, 400);
+    }
+
+    if (deps.validateTotalToolLimits) {
+      const mergedForLimits = { ...existing, ...body };
+      const toolCheck = await deps.validateTotalToolLimits(tenantId, mergedForLimits);
+      if (!toolCheck.ok) return c.json(toolCheck.error, 400);
     }
 
     const effectiveBinding =

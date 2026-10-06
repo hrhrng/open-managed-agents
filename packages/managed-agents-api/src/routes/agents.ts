@@ -51,7 +51,15 @@ function serializeAgentPage(page: ListAgentsPage): object | null {
   }
 }
 
-export function buildAgentRoutes(source: AgentsApplicationPortSource): Hono {
+export function buildAgentRoutes(
+  source: AgentsApplicationPortSource,
+  options?: {
+    validateTotalToolLimits?: (
+      tenantId: string,
+      body: unknown,
+    ) => Promise<{ ok: true } | { ok: false; error: any }>;
+  },
+): Hono {
   const app = new Hono();
 
   app.use("*", requireBeta(MANAGED_AGENTS_BETA));
@@ -222,6 +230,16 @@ export function buildAgentRoutes(source: AgentsApplicationPortSource): Hono {
         ),
         400,
       );
+    }
+
+    if (options?.validateTotalToolLimits) {
+      // The context has tenantId on custom variables usually. But `managed-agents-api` might abstract it.
+      // Wait, let's grab it the same way other routes do, but wait - there is no `c.var.tenant_id` standard here 
+      // instead the `AgentsApplicationPort` does have it inside `resolveApplicationPort`.
+      // Let's just pull it out of c.var if it's there. 
+      const tenantId = (c.var as any)?.tenant_id ?? "unknown";
+      const toolCheck = await options.validateTotalToolLimits(tenantId, parsed.data);
+      if (!toolCheck.ok) return c.json(toolCheck.error, 400);
     }
 
     const result = await resolveApplicationPort(source, c).createAgent(

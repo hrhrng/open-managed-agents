@@ -144,6 +144,7 @@ import {
   fetchVaultCredentials,
 } from "./lib/cf-session-lifecycle";
 import { validateAgentLimits } from "./lib/limits";
+import { validateTotalToolLimits } from "./lib/tool-limits";
 import { listMemberships, hasMembership } from "./auth-config";
 import legacyEnvironmentsRoutes from "./routes/environments";
 import oauthRoutes from "./routes/oauth";
@@ -310,6 +311,8 @@ const legacyAgentsRoutes = new Hono<{
     },
     validateAgentLimits: (body) =>
       validateAgentLimits(body as Parameters<typeof validateAgentLimits>[0]),
+    validateTotalToolLimits: async (tenantId, body) =>
+      validateTotalToolLimits(services, tenantId, body),
     hasActiveSessionsByAgent: (tenantId, agentId) =>
       services.sessions.hasActiveByAgent({ tenantId, agentId }),
     hasActiveEvalsByAgent: (tenantId, agentId) =>
@@ -350,10 +353,11 @@ function managedCoreApplicationFor(context: { var: unknown }) {
   });
 }
 
-const managedAgentsRoutes = buildManagedAgentRoutes((context) => {
-  return managedCoreApplicationFor(context)
-    .port(managedAgentsPortTokens.agents);
-});
+const managedAgentsRoutes = buildManagedAgentRoutes(
+  (context) => {
+    return managedCoreApplicationFor(context).port(managedAgentsPortTokens.agents);
+  }
+);
 
 const managedEnvironmentsRoutes = buildManagedEnvironmentRoutes((context) => {
   return managedCoreApplicationFor(context)

@@ -8,7 +8,10 @@ import type {
   TextContent,
   Tool,
 } from "@earendil-works/pi-ai";
-import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
+import {
+  estimateContextTokens,
+  estimateTextTokens,
+} from "@earendil-works/pi-ai/utils/estimate";
 import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
 import type { HarnessRuntime } from "./interface";
 
@@ -97,12 +100,14 @@ export class PiSummaryCompactionPolicy implements PiCompactionPolicy {
   ): boolean {
     const fraction = normalizeTriggerFraction(this.options.triggerFraction);
     const threshold = ctx.compactionTriggerInputTokens * fraction;
-    const { tokens } = estimateContextTokens({
-      systemPrompt: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-    });
-    return tokens >= threshold;
+    const { tokens: messageTokens } = estimateContextTokens(ctx.messages);
+    const systemTokens = ctx.systemPrompt.length > 0
+      ? estimateTextTokens(ctx.systemPrompt)
+      : 0;
+    const toolTokens = ctx.tools.length > 0
+      ? estimateTextTokens(JSON.stringify(ctx.tools))
+      : 0;
+    return messageTokens + systemTokens + toolTokens >= threshold;
   }
 
   async compact(

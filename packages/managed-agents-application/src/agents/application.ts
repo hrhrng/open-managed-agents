@@ -16,8 +16,8 @@ import type {
   RetrieveAgentResult,
   UpdateAgentCommand,
   UpdateAgentResult,
-  type AgentContextManagementInput,
-  type AgentOpenMaInput,
+  AgentContextManagementInput,
+  AgentOpenMaInput,
 } from "./port";
 import {
   parseOpenAiModelSettings,

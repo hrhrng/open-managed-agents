@@ -35,20 +35,20 @@ function readOma(agent: unknown): Record<string, unknown> | undefined {
 function readContextManagement(agent: unknown): HarnessContextManagement | undefined {
   if (!isRecord(agent)) return undefined;
   const direct = agent.context_management;
-  if (isRecord(direct)) return direct as HarnessContextManagement;
+  if (isRecord(direct)) return direct as unknown as HarnessContextManagement;
   const oma = readOma(agent);
   const nested = oma?.context_management;
-  if (isRecord(nested)) return nested as HarnessContextManagement;
+  if (isRecord(nested)) return nested as unknown as HarnessContextManagement;
   return undefined;
 }
 
 function readOpenAiModelSettings(agent: unknown): HarnessOpenAiModelSettings | undefined {
   const oma = readOma(agent);
   const nested = oma?.model_settings;
-  if (isRecord(nested)) return nested as HarnessOpenAiModelSettings;
+  if (isRecord(nested)) return nested as unknown as HarnessOpenAiModelSettings;
   if (!isRecord(agent)) return undefined;
   const direct = agent.model_settings;
-  if (isRecord(direct)) return direct as HarnessOpenAiModelSettings;
+  if (isRecord(direct)) return direct as unknown as HarnessOpenAiModelSettings;
   return undefined;
 }
 

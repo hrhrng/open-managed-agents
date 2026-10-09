@@ -15,6 +15,7 @@
     "./harness/pi-provider": "./src/harness/pi-provider.ts",
     "./harness/pi-loop": "./src/harness/pi-loop.ts",
     "./harness/pi-compaction": "./src/harness/pi-compaction.ts",
+    "./harness/agent-model-settings": "./src/harness/agent-model-settings.ts",
     "./harness/acp-sandbox": "./src/harness/acp-sandbox-loop.ts",
     "./harness/acp-agent-state": "./src/harness/acp-agent-state.ts",
     "./harness/platform-guidance": "./src/harness/platform-guidance.ts",

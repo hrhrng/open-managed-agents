@@ -51,6 +51,29 @@ export function buildNodeManagedSkillReminders(
   });
 }
 
+export function buildNodeManagedSkillMounts(
+  session: Session,
+): Array<{
+  skillId: string;
+  name: string;
+  description: string;
+  mountRoot: string;
+  source: "custom";
+}> {
+  return session.agent.skills.flatMap((skill) => {
+    if (skill.type !== "custom") return [];
+    const requestedVersion = skill.version ?? "latest";
+    const mountRoot = `/workspace/.openma/skills/${encodeURIComponent(skill.skillId)}/${encodeURIComponent(requestedVersion)}/`;
+    return [{
+      skillId: skill.skillId,
+      name: skill.skillId,
+      description: `Custom skill mounted at ${mountRoot}`,
+      mountRoot,
+      source: "custom",
+    }];
+  });
+}
+
 export function buildNodeManagedAppendablePromptReminders(
   session: Session,
 ): Array<{ source: string; text: string }> {

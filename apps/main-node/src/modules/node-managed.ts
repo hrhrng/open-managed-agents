@@ -25,6 +25,7 @@ import { buildTools, disposeTools } from "@open-managed-agents/agent/harness/too
 
 import { generateText } from "ai";
 import { composeSystemPrompt } from "@open-managed-agents/agent/harness/platform-guidance";
+import { agentUsesAssemblySkillMount } from "@open-managed-agents/agent/harness/assembly/skill-config";
 import type { HarnessContext } from "@open-managed-agents/agent/harness/interface";
 
 import { buildCredentialRoutes as buildManagedCredentialRoutes, buildDeploymentRoutes as buildManagedDeploymentRoutes, buildDeploymentRunRoutes as buildManagedDeploymentRunRoutes, buildDreamRoutes as buildManagedDreamRoutes, buildEnvironmentRoutes as buildManagedEnvironmentRoutes, buildEnvironmentWorkRoutes as buildManagedEnvironmentWorkRoutes, buildFileRoutes as buildManagedFileRoutes, buildMemoryStoreRoutes as buildManagedMemoryStoreRoutes, buildMemoryRoutes as buildManagedMemoryRoutes, buildMemoryVersionRoutes as buildManagedMemoryVersionRoutes, buildModelRoutes as buildManagedModelRoutes, buildSkillRoutes as buildManagedSkillRoutes, buildSkillVersionRoutes as buildManagedSkillVersionRoutes, buildTunnelCertificateRoutes as buildManagedTunnelCertificateRoutes, buildTunnelRoutes as buildManagedTunnelRoutes, buildVaultRoutes as buildManagedVaultRoutes, buildUserProfileRoutes as buildManagedUserProfileRoutes } from "@open-managed-agents/managed-agents-api";
@@ -77,7 +78,12 @@ import { NodeManagedConfirmedToolExecutor } from "../lib/node-managed-confirmed-
 import { NodeManagedOutcomeEvaluator } from "../lib/node-managed-outcome-evaluator.js";
 import { ApplicationBackedNodeManagedSessionRuntimeEngine, DefaultNodeManagedSessionRuntimeDriver, NodeManagedSessionRuntimeAdapter } from "../lib/node-managed-session-runtime.js";
 import { DefaultNodeManagedSessionRunner } from "../lib/node-managed-session-runner.js";
-import { buildNodeManagedSkillReminders, buildNodeManagedAppendablePromptReminders, NodeManagedSessionInputPreparer } from "../lib/node-managed-session-inputs.js";
+import {
+  buildNodeManagedSkillReminders,
+  buildNodeManagedSkillMounts,
+  buildNodeManagedAppendablePromptReminders,
+  NodeManagedSessionInputPreparer,
+} from "../lib/node-managed-session-inputs.js";
 import { NodeManagedMemorySnapshotMaterializer } from "../lib/node-managed-memory-snapshots.js";
 import { NodeSessionExecutionWorker } from "../lib/node-session-execution-worker.js";
 import { createNodeMcpProxyBinding, type NodeMcpProxyTarget } from "../lib/http-mcp-proxy.js";
@@ -592,8 +598,10 @@ export async function createManagedNodeRuntime(
         speed: typeof agent.model === "string" ? undefined : agent.model.speed === "fast" ? "fast" : "standard",
       });
       const rawSystemPrompt = input.session.agent.system ?? "";
+      const assemblySkills = agentUsesAssemblySkillMount(agent);
+      const skillMounts = assemblySkills ? buildNodeManagedSkillMounts(input.session) : undefined;
       const platformReminders = [
-        ...buildNodeManagedSkillReminders(input.session),
+        ...(assemblySkills ? [] : buildNodeManagedSkillReminders(input.session)),
         ...buildNodeManagedAppendablePromptReminders(input.session),
       ];
       const feishuTools = await resolveFeishuAgentTools(input.session.id);
@@ -608,6 +616,7 @@ export async function createManagedNodeRuntime(
         systemPrompt: composeSystemPrompt(rawSystemPrompt, platformReminders),
         rawSystemPrompt,
         platformReminders,
+        ...(skillMounts?.length ? { skillMounts } : {}),
         env: {
           ANTHROPIC_API_KEY: creds.apiKey,
           ANTHROPIC_BASE_URL: creds.baseURL,

@@ -144,6 +144,19 @@ tool. Configure via agent `metadata` (top-level or `_oma` mirror):
 
 Loaded tools persist in the session event log and are restored on harness resume.
 
+### Skill mounting (`skill_mount`)
+
+Pi / default harnesses expose skills through the assembly layer instead of inlining every `SKILL.md` into the system prompt:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `skill_mount` | `progressive` | List name, description, and sandbox path; read `SKILL.md` on demand (pi coding-agent style). |
+| `skill_mount` | `budgeted` | Skill list capped by `skill_list_budget` (fraction of context); overflow skills deferred to `tool_search`. |
+| `skill_mount` | `tool` | Index in system prompt; call built-in `skill` to load `SKILL.md` for the next turn. |
+| `skill_mount` | `inline` | Legacy behavior — full `SKILL.md` bodies in the system prompt. |
+| `skill_list_budget` | `0.02` | List token budget fraction for `budgeted` mode. |
+| `skill_description_max_chars` | `1024` | Per-skill description cap in list modes. |
+
 ## Pi-backed Model Cards
 
 `provider` is an open Pi provider id (`anthropic`, `openai`, `deepseek`,

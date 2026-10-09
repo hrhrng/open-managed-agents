@@ -23,6 +23,7 @@ import {
   parseOpenAiModelSettings,
   resolveCompactionWireInput,
 } from "./compaction-wire";
+import { resolveAgentModelContextWindow } from "./model-context-window";
 import type { AgentStore } from "@open-managed-agents/agent-store";
 import type {
   AgentMultiagent,
@@ -122,6 +123,12 @@ function normalizeModel(model: string | AgentModelInput): AgentModelView {
 function validateAgentModelCapacity(model: AgentModelView): string | null {
   if (model.maxTokens !== undefined && model.maxTokens < 1) {
     return "model.max_tokens must be a positive integer";
+  }
+  if (model.maxTokens !== undefined) {
+    const contextWindow = resolveAgentModelContextWindow(model.id);
+    if (model.maxTokens >= contextWindow) {
+      return `model.max_tokens (${model.maxTokens}) must be less than context window (${contextWindow})`;
+    }
   }
   return null;
 }

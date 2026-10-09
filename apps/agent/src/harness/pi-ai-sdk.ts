@@ -278,7 +278,9 @@ function toPiStreamOptions(
   };
   return withPiRuntimeRequestOptions(runtime, {
     ...piOptions,
-    ...(piOptions.reasoning === undefined && runtime.thinkingLevel !== "off"
+    ...(piOptions.reasoning === undefined
+      && runtime.thinkingLevel !== undefined
+      && runtime.thinkingLevel !== "off"
       ? { reasoning: runtime.thinkingLevel }
       : {}),
     ...(signal ? { signal } : {}),

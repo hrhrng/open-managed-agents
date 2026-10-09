@@ -18,6 +18,7 @@
     "@open-managed-agents/deployment-store": "workspace:*",
     "@open-managed-agents/deployment-run-store": "workspace:*",
     "@open-managed-agents/dream-store": "workspace:*",
+    "@earendil-works/pi-ai": "1.1.0",
     "@open-managed-agents/domain": "workspace:*",
     "@open-managed-agents/environment-store": "workspace:*",
     "@open-managed-agents/environment-work-store": "workspace:*",

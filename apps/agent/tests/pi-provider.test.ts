@@ -72,6 +72,16 @@ describe("createPiModelRuntime", () => {
     expect(runtime.model.contextWindow).toBeGreaterThan(0);
   });
 
+  it("omits Pi reasoning when agent effort is unset so provider defaults apply", () => {
+    const runtime = createPiModelRuntime({
+      model: "deepseek-v4-flash",
+      apiKey: "secret",
+      provider: "deepseek",
+    });
+    expect(runtime.thinkingLevel).toBeUndefined();
+    expect(withPiRuntimeRequestOptions(runtime).reasoning).toBeUndefined();
+  });
+
   it("reports the sanitized Pi upstream URL when the provider rejects a request", async () => {
     const upstream = vi.fn(async () => new Response("404 page not found", { status: 404 }));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

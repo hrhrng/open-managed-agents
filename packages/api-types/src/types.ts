@@ -476,7 +476,7 @@ export interface AgentMcpToolUseEvent extends EventBase {
 export interface AgentMcpToolResultEvent extends EventBase {
   type: "agent.mcp_tool_result";
   mcp_tool_use_id: string;
-  content: string;
+  content: string | ContentBlock[];
   is_error?: boolean;
 }
 

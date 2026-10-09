@@ -416,6 +416,16 @@ describe("AgentsApplicationService", () => {
     });
 
     expect(
+      await service.createAgent({
+        name: "Bad max tokens",
+        model: { id: "deepseek-v4-flash", maxTokens: 1_000_000 },
+      }),
+    ).toMatchObject({
+      type: "invalid_request",
+      message: expect.stringMatching(/max_tokens.*context window/i),
+    });
+
+    expect(
       await openaiService.createAgent({
         name: "Conflict",
         model: "claude-opus-5",

@@ -111,5 +111,9 @@ export function classifyExternalError(err: unknown): OmaError | unknown {
     return new ConfigError(msg, { cause: err });
   }
 
+  if (/max_tokens.*must be less than context window/i.test(msg)) {
+    return new ConfigError(msg, { cause: err });
+  }
+
   return err; // unclassified — let caller decide
 }

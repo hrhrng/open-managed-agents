@@ -98,8 +98,7 @@ export class PiSummaryCompactionPolicy implements PiCompactionPolicy {
     _events: SessionEvent[],
     ctx: PiCompactionCheckContext,
   ): boolean {
-    const fraction = normalizeTriggerFraction(this.options.triggerFraction);
-    const threshold = ctx.compactionTriggerInputTokens * fraction;
+    const threshold = ctx.compactionTriggerInputTokens;
     const { tokens: messageTokens } = estimateContextTokens(ctx.messages);
     const systemTokens = ctx.systemPrompt.length > 0
       ? estimateTextTokens(ctx.systemPrompt)

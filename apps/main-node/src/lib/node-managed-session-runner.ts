@@ -8,6 +8,7 @@ import type {
   HarnessContext,
   HarnessInterface,
 } from "@open-managed-agents/agent/harness/interface";
+import { ConfigError } from "@open-managed-agents/shared";
 import type {
   Environment,
   Session,
@@ -560,7 +561,14 @@ export class DefaultNodeManagedSessionRunner
             return;
           } catch (error) {
             const sideEffectFree = runtime.agentEventCount === agentEventsBefore;
-            if (!sideEffectFree || attempt >= retry.attempts || abortController.signal.aborted) throw error;
+            if (
+              !sideEffectFree
+              || attempt >= retry.attempts
+              || abortController.signal.aborted
+              || error instanceof ConfigError
+            ) {
+              throw error;
+            }
             runtime.broadcastProducedEvent({
               type: "session.error",
               error: {

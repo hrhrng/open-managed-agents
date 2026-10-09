@@ -177,7 +177,7 @@ function emitToolResultEvent(
     runtime.broadcast({
       type: "agent.mcp_tool_result",
       mcp_tool_use_id: toolCallId,
-      content: typeof content === "string" ? content : JSON.stringify(content),
+      content,
       ...(part.type === "tool-error" && { is_error: true }),
       // v1-additive: causal predecessor is the matching agent.mcp_tool_use,
       // whose EventBase.id is set explicitly to toolCallId in

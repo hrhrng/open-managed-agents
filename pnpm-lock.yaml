@@ -2453,6 +2453,9 @@ importers:
 
   packages/managed-agents-application:
     dependencies:
+      '@earendil-works/pi-ai':
+        specifier: 1.1.0
+        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@smithy/signature-v4@5.7.3)(undici@8.10.0)(ws@8.21.0)(zod@4.4.3)
       '@open-managed-agents/agent-store':
         specifier: workspace:*
         version: link:../agent-store

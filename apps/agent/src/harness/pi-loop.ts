@@ -196,7 +196,9 @@ export class PiHarness implements HarnessInterface {
         sessionId: ctx.session_id,
         abortSignal: ctx.runtime.abortSignal,
         requestOptions: withPiRuntimeRequestOptions(ctx.pi, {
-          ...(ctx.pi.thinkingLevel === "off" ? {} : { reasoning: ctx.pi.thinkingLevel }),
+          ...(ctx.pi.thinkingLevel !== undefined && ctx.pi.thinkingLevel !== "off"
+            ? { reasoning: ctx.pi.thinkingLevel }
+            : {}),
         }),
       });
       return this.persistCompaction(result, ctx);
@@ -420,7 +422,7 @@ async function translatePiEvent(
         runtime.broadcast({
           type: "agent.mcp_tool_result",
           mcp_tool_use_id: event.toolCallId,
-          content: typeof content === "string" ? content : JSON.stringify(content),
+          content,
           ...(event.isError && { is_error: true }),
         } as SessionEvent);
       } else {

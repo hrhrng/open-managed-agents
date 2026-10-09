@@ -10,10 +10,11 @@ import {
   type ModelThinkingLevel,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import { ConfigError } from "@open-managed-agents/shared";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getApiProvider } from "@earendil-works/pi-ai/compat";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 export { toAiSdkLanguageModel } from "./pi-ai-sdk";
 
 /** Unknown / non-catalog models: conservative context floor for OMA (not 128k). */
@@ -34,8 +35,8 @@ export interface PiModelRuntime {
   model: Model<Api>;
   /** JSON-compatible defaults from Agent `model.provider_options.pi`. */
   providerOptions?: SimpleStreamOptions;
-  /** Pi-native per-agent default. `off` is Pi's own default. */
-  thinkingLevel: ModelThinkingLevel;
+  /** Pi reasoning level when agent effort is set; omitted to use provider defaults. */
+  thinkingLevel?: ModelThinkingLevel;
   /** Managed Agents request priority. Model cards do not own this setting. */
   speed: "standard" | "fast";
 }
@@ -149,7 +150,7 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
     ...(input.modelMaxTokens !== undefined && { maxTokens: input.modelMaxTokens }),
   };
   if (model.maxTokens >= model.contextWindow) {
-    throw new Error(
+    throw new ConfigError(
       `max_tokens (${model.maxTokens}) must be less than context window (${model.contextWindow})`,
     );
   }
@@ -180,10 +181,24 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
     models,
     model,
     providerOptions: structuredClone(input.providerOptions ?? {}) as SimpleStreamOptions,
-    // Preserve the agent-configured level; Pi clamps at request time per model support.
-    thinkingLevel: input.thinkingLevel ?? "off",
+    ...(input.thinkingLevel !== undefined && { thinkingLevel: input.thinkingLevel }),
     speed: input.speed ?? "standard",
   };
+}
+
+/** Resolve catalog context window for agent save-time validation (alias + 256k fallback). */
+export function resolvePiAgentModelContextWindow(
+  modelId: string,
+  piConfig?: PiModelConfig,
+): number {
+  const catalogId = resolvePiCatalogModelId(modelId);
+  for (const provider of builtinProviders()) {
+    const match = provider.getModels().find(
+      (model) => model.id === catalogId || model.id === modelId,
+    );
+    if (match !== undefined) return match.contextWindow;
+  }
+  return piConfig?.contextWindow ?? PI_UNKNOWN_MODEL_CONTEXT_WINDOW;
 }
 
 /**

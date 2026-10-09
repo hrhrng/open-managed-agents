@@ -23,7 +23,6 @@ import {
   parseOpenAiModelSettings,
   resolveCompactionWireInput,
 } from "./compaction-wire";
-import { resolveAgentModelContextWindow } from "./model-context-window";
 import type { AgentStore } from "@open-managed-agents/agent-store";
 import type {
   AgentMultiagent,
@@ -126,17 +125,6 @@ function validateAgentModelCapacity(model: AgentModelView): string | null {
     return "model.max_tokens must be a positive integer";
   }
   return null;
-}
-
-function warnAgentModelCapacity(model: AgentModelView): void {
-  if (model.maxTokens === undefined) return;
-  const contextWindow = resolveAgentModelContextWindow(model.id);
-  if (model.maxTokens >= contextWindow) {
-    console.warn(
-      `[agents] model.max_tokens (${model.maxTokens}) is not less than the resolved `
-        + `context window (${contextWindow}); requests will be clamped at runtime by pi-ai`,
-    );
-  }
 }
 
 function isCompactEditType(type: string): boolean {
@@ -503,7 +491,6 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (invalidModel !== null) {
       return { type: "invalid_request", message: invalidModel };
     }
-    warnAgentModelCapacity(normalizedModel);
     const timestamp = this.dependencies.clock.now().toISOString();
     const agentId = this.dependencies.ids.nextAgentId();
     const resolvedMultiagent = await resolveMultiagent(
@@ -624,7 +611,6 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (invalidModelCapacity !== null) {
       return { type: "invalid_request", message: invalidModelCapacity };
     }
-    warnAgentModelCapacity(nextModel);
     const mergedOpenMa = mergeOpenMaCompactionInput(
       current.openma,
       command.openma,

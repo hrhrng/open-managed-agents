@@ -183,7 +183,7 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
   };
 }
 
-/** Resolve catalog context window for agent save-time validation (alias + 256k fallback). */
+/** Harness/runtime context window from pi-ai catalog (alias + 256k fallback). */
 export function resolvePiAgentModelContextWindow(
   modelId: string,
   piConfig?: PiModelConfig,

@@ -3,6 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { SessionEvent } from "@open-managed-agents/shared";
 import type { HarnessContext, HarnessRuntime } from "../src/harness/interface";
+import type { Agent } from "@earendil-works/pi-agent-core";
 import { createPiToolAssembly } from "../src/harness/assembly/adapters/pi";
 import { TOOL_ASSEMBLY_WARNING_SOURCE } from "../src/harness/assembly/loaded-tools-state";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
@@ -76,6 +77,49 @@ describe("createPiToolAssembly", () => {
     const assembly = createPiToolAssembly(makeAssemblyContext(events));
     expect(assembly.initialTools.map((tool) => tool.name)).toContain(MCP_TOOL);
     expect(assembly.getState().loadedToolNames).toContain(MCP_TOOL);
+  });
+
+  it("claude_code (default): bootstrap deferred list for first model turn", () => {
+    const assembly = createPiToolAssembly(makeAssemblyContext([]));
+    expect(assembly.systemPrompt).toBe("system");
+    expect(assembly.bootstrapTurnMessages).toHaveLength(1);
+    expect(assembly.bootstrapTurnMessages[0]?.content).toContain(MCP_TOOL);
+    expect(assembly.bootstrapTurnMessages[0]?.content).toContain("tool_search");
+  });
+
+  it("incremental: defers next-turn hint until deferred set changes", async () => {
+    const events: SessionEvent[] = [];
+    const ctx = makeAssemblyContext(events);
+    const MCP_OTHER = "mcp__docs__lookup";
+    ctx.tools[MCP_OTHER] = {
+      description: "Lookup docs",
+      inputSchema: z.object({ query: z.string() }),
+      execute: async () => "ok",
+    };
+    ctx.agent.metadata = { tool_search: "on", tool_search_deferred_hints: "incremental" };
+    const assembly = createPiToolAssembly(ctx);
+    expect(assembly.systemPrompt).toContain("<deferred-tools>");
+    expect(assembly.bootstrapTurnMessages).toHaveLength(0);
+
+    const agent = {} as Agent;
+    assembly.attach(agent);
+    const unchanged = await agent.prepareNextTurnWithContext!({
+      context: { messages: [], tools: assembly.initialTools },
+      model: ctx.pi!.model,
+      thinkingLevel: "off",
+    });
+    expect(unchanged?.messages ?? []).toHaveLength(0);
+
+    const search = assembly.initialTools.find((tool) => tool.name === "tool_search");
+    await search!.execute!("load-1", { query: `select:${MCP_TOOL}` });
+    expect(assembly.getState().loadedToolNames).toContain(MCP_TOOL);
+
+    const changed = await agent.prepareNextTurnWithContext!({
+      context: { messages: [], tools: assembly.initialTools },
+      model: ctx.pi!.model,
+      thinkingLevel: "off",
+    });
+    expect(changed?.messages?.[0]?.content).toContain("Deferred tools changed");
   });
 
   it("records newly loaded tools via session.warning when tool_search runs", async () => {

@@ -28,3 +28,28 @@ export function appendDeferredIndex(systemPrompt: string, deferredNames: string[
   if (!block) return systemPrompt;
   return `${systemPrompt}${block}`;
 }
+
+const CLAUDE_CODE_DEFERRED_CAP = 512;
+
+/** Claude Code–style user-turn reminder listing deferred tool names. */
+export function formatClaudeCodeDeferredReminder(deferredNames: string[]): string {
+  if (deferredNames.length === 0) return "";
+  const capped = deferredNames.slice(0, CLAUDE_CODE_DEFERRED_CAP);
+  const omitted = deferredNames.length - capped.length;
+  const lines = [
+    "<system-reminder>",
+    "The following deferred tools are now available via tool_search. Their schemas are NOT loaded — "
+      + "calling them directly will fail. Use tool_search with query \"select:<name>[,<name>...]\" "
+      + "to load tool schemas before calling them:",
+    ...capped,
+  ];
+  if (omitted > 0) {
+    lines.push(`… and ${omitted} more (use tool_search to find them).`);
+  }
+  lines.push("</system-reminder>");
+  return lines.join("\n");
+}
+
+export function formatIncrementalDeferredChangeReminder(remainingCount: number): string {
+  return `<system-reminder>Deferred tools changed (${remainingCount} still unloaded). Use tool_search to load more.</system-reminder>`;
+}

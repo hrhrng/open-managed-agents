@@ -2,6 +2,9 @@ import type { AgentConfig } from "@open-managed-agents/api-types";
 
 export type ToolSearchMode = "auto" | "on" | "off";
 
+/** How deferred MCP tools are surfaced to the model when `tool_search` is active. */
+export type DeferredHintStrategy = "claude_code" | "pi" | "codex" | "incremental";
+
 export interface ToolAssemblyConfig {
   mode: ToolSearchMode;
   /** Max tools returned per `tool_search` call (default 8). */
@@ -10,6 +13,8 @@ export interface ToolAssemblyConfig {
   autoThresholdFraction: number;
   /** Tool names always exposed (in addition to built-in / custom). */
   alwaysLoad: Set<string>;
+  /** Turn-boundary / bootstrap hints for deferred tools (default `claude_code`). */
+  deferredHintStrategy: DeferredHintStrategy;
 }
 
 const DEFAULT_SEARCH_LIMIT = 8;
@@ -51,10 +56,23 @@ export function resolveToolAssemblyConfig(agent: AgentConfig): ToolAssemblyConfi
     }
   }
 
+  const rawHintStrategy =
+    readString(metadata, "tool_search_deferred_hints")
+    ?? (oma && readString(oma, "tool_search_deferred_hints"))
+    ?? "claude_code";
+  const deferredHintStrategy: DeferredHintStrategy =
+    rawHintStrategy === "claude_code"
+    || rawHintStrategy === "pi"
+    || rawHintStrategy === "codex"
+    || rawHintStrategy === "incremental"
+      ? rawHintStrategy
+      : "claude_code";
+
   return {
     mode,
     searchLimit: Math.max(1, Math.min(32, Math.floor(limit))),
     autoThresholdFraction: Math.min(0.95, Math.max(0.01, threshold)),
     alwaysLoad,
+    deferredHintStrategy,
   };
 }

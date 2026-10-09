@@ -38,18 +38,18 @@ function splitIdentifier(segment: string): string[] {
 }
 
 export function tokenizeForSearch(text: string): string[] {
-  const lower = text.toLowerCase();
-  const segments = lower.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const segments = text.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const tokens: string[] = [];
   for (const segment of segments) {
     for (const part of splitIdentifier(segment)) {
       if (!part) continue;
-      if (isCjkOnly(part)) {
-        tokens.push(...cjkBigrams(part));
+      const lower = part.toLowerCase();
+      if (isCjkOnly(lower)) {
+        tokens.push(...cjkBigrams(lower));
         continue;
       }
-      if (part.length > 1) tokens.push(part);
-      else if (/\p{L}/u.test(part) || /\p{N}/u.test(part)) tokens.push(part);
+      if (lower.length > 1) tokens.push(lower);
+      else if (/\p{L}/u.test(lower) || /\p{N}/u.test(lower)) tokens.push(lower);
     }
   }
   return tokens;

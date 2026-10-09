@@ -128,11 +128,16 @@ export class PiHarness implements HarnessInterface {
     let producedOutput = false;
 
     const toolAssembly = createPiToolAssembly(ctx);
+    const bootstrapMessages = toolAssembly.bootstrapTurnMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+    }));
     const agent = new Agent({
       initialState: {
         systemPrompt: toolAssembly.systemPrompt,
         model: ctx.pi!.model,
-        messages,
+        messages: [...bootstrapMessages, ...messages],
         tools: toolAssembly.initialTools,
         // The tenant runtime maps effort to the model's supported Pi level.
         thinkingLevel: ctx.pi!.thinkingLevel,

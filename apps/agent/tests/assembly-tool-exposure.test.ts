@@ -42,6 +42,7 @@ describe("tool exposure strategy", () => {
       searchLimit: 8,
       autoThresholdFraction: 0.1,
       alwaysLoad: new Set(),
+      deferredHintStrategy: "claude_code",
     };
     const plan = exposure.plan({ allTools: all, loadedToolNames: new Set(), config, model });
     expect(plan.toolSearchEnabled).toBe(false);
@@ -62,6 +63,7 @@ describe("tool exposure strategy", () => {
       searchLimit: 8,
       autoThresholdFraction: 0.1,
       alwaysLoad: new Set(),
+      deferredHintStrategy: "claude_code",
     };
     const plan = exposure.plan({ allTools: all, loadedToolNames: new Set(), config, model });
     expect(plan.toolSearchEnabled).toBe(true);
@@ -83,6 +85,7 @@ describe("tool exposure strategy", () => {
       searchLimit: 8,
       autoThresholdFraction: 0.1,
       alwaysLoad: new Set(),
+      deferredHintStrategy: "claude_code",
     };
     const plan = exposure.plan({
       allTools: [builtinTool("read"), mcp, search],
@@ -112,6 +115,7 @@ describe("tool exposure strategy", () => {
       searchLimit: 8,
       autoThresholdFraction: 0.1,
       alwaysLoad: new Set(),
+      deferredHintStrategy: "claude_code",
     };
     const plan = exposure.plan({
       allTools: [builtinTool("read"), heavy, search],

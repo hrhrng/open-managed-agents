@@ -6,11 +6,12 @@ import { createToolCatalogSearch } from "../components/tool-catalog-search";
 import { createToolExposureStrategy } from "../strategies/exposure";
 import { buildToolCatalog } from "../catalog";
 import { resolveToolAssemblyConfig } from "../config";
-import { appendDeferredIndex } from "../deferred-prompt";
 import {
   broadcastLoadedToolNames,
   restoreLoadedToolNames,
 } from "../loaded-tools-state";
+import { createDeferredHintCoordinator } from "../strategies/deferred-hints";
+import type { DeferredHintBootstrapMessage } from "../strategies/deferred-hints";
 import type { AssemblyState, ToolCatalogEntry } from "../types";
 
 const TOOL_SEARCH_NAME = "tool_search";
@@ -18,6 +19,8 @@ const TOOL_SEARCH_NAME = "tool_search";
 export interface PiToolAssembly {
   initialTools: AgentTool[];
   systemPrompt: string;
+  /** User messages to prepend before the first model turn (strategy-specific). */
+  bootstrapTurnMessages: DeferredHintBootstrapMessage[];
   attach(agent: Agent): void;
   getState(): AssemblyState;
 }
@@ -42,6 +45,7 @@ function formatSearchResult(entries: ToolCatalogEntry[], tools: AgentTool[]): st
 
 export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const config = resolveToolAssemblyConfig(ctx.agent);
+  const deferredHints = createDeferredHintCoordinator(config.deferredHintStrategy);
   const exposure = createToolExposureStrategy();
   const search = createToolCatalogSearch();
   const allTools = toolsToPi(ctx);
@@ -49,7 +53,6 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const loaded = restoreLoadedToolNames(ctx.runtime.history.getEvents());
   const baseSystemPrompt = ctx.systemPrompt;
   const model = ctx.pi!.model;
-  let lastDeferredHintKey = "";
 
   const toolSearchPiTool: AgentTool = {
     name: TOOL_SEARCH_NAME,
@@ -95,12 +98,13 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   }
 
   const initialPlan = planTools();
+  let lastDeferredHintKey = deferredHints.initialDeferredHintKey(initialPlan);
+  const bootstrapTurnMessages = deferredHints.bootstrapTurnMessages(initialPlan);
 
   return {
     initialTools: initialPlan.exposed,
-    systemPrompt: initialPlan.toolSearchEnabled
-      ? appendDeferredIndex(baseSystemPrompt, initialPlan.deferredNames)
-      : baseSystemPrompt,
+    systemPrompt: deferredHints.augmentSystemPrompt(baseSystemPrompt, initialPlan),
+    bootstrapTurnMessages,
     getState: () => ({
       loadedToolNames: [...loaded],
       loadedSkillIds: [],
@@ -117,21 +121,14 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
           ...turnContext.context,
           tools: plan.exposed,
         };
-        if (!plan.toolSearchEnabled || plan.deferredNames.length === 0) {
+        const turnHints = deferredHints.prepareNextTurn(plan, lastDeferredHintKey);
+        lastDeferredHintKey = turnHints.nextDeferredHintKey;
+        if (!turnHints.messages || turnHints.messages.length === 0) {
           return { context: baseContext };
         }
-        const hintKey = plan.deferredNames.slice().sort().join("\0");
-        if (hintKey === lastDeferredHintKey) {
-          return { context: baseContext };
-        }
-        lastDeferredHintKey = hintKey;
         return {
           context: baseContext,
-          messages: [{
-            role: "user",
-            content: `<system-reminder>Deferred tools changed (${plan.deferredNames.length} still unloaded). Use tool_search to load more.</system-reminder>`,
-            timestamp: Date.now(),
-          }],
+          messages: turnHints.messages,
         };
       };
     },

@@ -1,4 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { estimateTextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import type { ToolCatalogEntry } from "./types";
 
 const MCP_PREFIX = "mcp__";
@@ -30,9 +31,10 @@ export function buildToolCatalog(tools: AgentTool[]): ToolCatalogEntry[] {
     .map(agentToolToCatalogEntry);
 }
 
-export function estimateToolDefinitionsChars(tools: AgentTool[]): number {
+export function estimateToolDefinitionsTokens(tools: AgentTool[]): number {
   return tools.reduce((sum, tool) => {
     const schema = JSON.stringify(tool.parameters ?? {});
-    return sum + tool.name.length + (tool.description?.length ?? 0) + schema.length;
+    const blob = `${tool.name}\n${tool.description ?? ""}\n${schema}`;
+    return sum + estimateTextTokens(blob);
   }, 0);
 }

@@ -13,6 +13,7 @@ import type { PiCompactionPolicy } from "../src/harness/pi-compaction";
 import { PiSummaryCompactionPolicy } from "../src/harness/pi-compaction";
 import { PiHarness } from "../src/harness/pi-loop";
 import { createPiModelRuntime } from "../src/harness/pi-provider";
+import { TOOL_ASSEMBLY_WARNING_SOURCE } from "../src/harness/assembly/loaded-tools-state";
 
 function makeContext(responses: ReturnType<typeof fauxAssistantMessage>[]) {
   const faux = fauxProvider({ tokensPerSecond: 100_000 });
@@ -445,6 +446,126 @@ describe("PiHarness", () => {
       expect.any(Object),
       expect.objectContaining({ reasoning: "high" }),
     );
+  });
+
+  describe("tool_search assembly", () => {
+    const MCP_TOOL = "mcp__github__create_issue";
+
+    function makeToolSearchContext(
+      responses: ReturnType<typeof fauxAssistantMessage>[],
+      toolSearchMode: "on" | "off" | "auto",
+      mcpDescription = "Create a GitHub issue",
+    ) {
+      const base = makeContext(responses);
+      base.ctx.agent = {
+        id: "agent-test",
+        model: base.ctx.pi!.model.id,
+        metadata: { tool_search: toolSearchMode },
+      };
+      base.ctx.tools = {
+        read: {
+          description: "Read a file",
+          inputSchema: z.object({ path: z.string() }),
+          execute: async () => "ok",
+        },
+        [MCP_TOOL]: {
+          description: mcpDescription,
+          inputSchema: z.object({ title: z.string() }),
+          execute: async () => ({ created: true }),
+        },
+      };
+      return base;
+    }
+
+    it("keeps all MCP tools visible when tool_search is off", async () => {
+      const { ctx, faux } = makeToolSearchContext([fauxAssistantMessage("ok")], "off");
+      const assemblyProbe = vi.fn();
+      const piAdapter = await import("../src/harness/assembly/adapters/pi");
+      const createAssembly = piAdapter.createPiToolAssembly;
+      vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+        const assembly = createAssembly(harnessCtx);
+        assemblyProbe(assembly.initialTools.map((tool) => tool.name));
+        return assembly;
+      });
+
+      await new PiHarness().run(ctx);
+      expect(faux.state.callCount).toBe(1);
+      expect(assemblyProbe).toHaveBeenCalled();
+      expect(assemblyProbe.mock.calls[0]?.[0]).toContain(MCP_TOOL);
+      expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain("tool_search");
+      vi.restoreAllMocks();
+    });
+
+    it("defers MCP tools and exposes tool_search when mode is on", async () => {
+      const { ctx, faux } = makeToolSearchContext([fauxAssistantMessage("ok")], "on");
+      const assemblyProbe = vi.fn();
+      const piAdapter = await import("../src/harness/assembly/adapters/pi");
+      const createAssembly = piAdapter.createPiToolAssembly;
+      vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+        const assembly = createAssembly(harnessCtx);
+        assemblyProbe(assembly.initialTools.map((tool) => tool.name));
+        return assembly;
+      });
+
+      await new PiHarness().run(ctx);
+      expect(faux.state.callCount).toBe(1);
+      expect(assemblyProbe.mock.calls[0]?.[0]).toContain("tool_search");
+      expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain(MCP_TOOL);
+      vi.restoreAllMocks();
+    });
+
+    it("loads deferred tools for the next model turn after tool_search", async () => {
+      const { ctx, faux, events } = makeToolSearchContext(
+        [
+          fauxAssistantMessage(
+            [fauxToolCall("tool_search", { query: `select:${MCP_TOOL}` }, { id: "tool-search-1" })],
+            { stopReason: "toolUse" },
+          ),
+          fauxAssistantMessage("loaded"),
+        ],
+        "on",
+      );
+
+      await new PiHarness().run(ctx);
+      expect(faux.state.callCount).toBe(2);
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "session.warning",
+        source: TOOL_ASSEMBLY_WARNING_SOURCE,
+        details: { loadedToolNames: [MCP_TOOL] },
+      }));
+    });
+
+    it("resumes loaded tools from prior session events on a new harness run", async () => {
+      const { ctx, events, faux } = makeToolSearchContext(
+        [
+          fauxAssistantMessage(
+            [fauxToolCall("tool_search", { query: `select:${MCP_TOOL}` }, { id: "tool-search-resume" })],
+            { stopReason: "toolUse" },
+          ),
+          fauxAssistantMessage("first run done"),
+        ],
+        "on",
+      );
+
+      await new PiHarness().run(ctx);
+      events.push({
+        type: "user.message",
+        content: [{ type: "text", text: "second turn" }],
+      });
+      const assemblyProbe = vi.fn();
+      const piAdapter = await import("../src/harness/assembly/adapters/pi");
+      const createAssembly = piAdapter.createPiToolAssembly;
+      vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+        const assembly = createAssembly(harnessCtx);
+        assemblyProbe(assembly.initialTools.map((tool) => tool.name));
+        return assembly;
+      });
+      faux.setResponses([fauxAssistantMessage("resumed")]);
+
+      await new PiHarness().run(ctx);
+      expect(assemblyProbe.mock.calls[0]?.[0]).toContain(MCP_TOOL);
+      vi.restoreAllMocks();
+    });
   });
 
   it("pauses non-executable tools for OpenMA confirmation", async () => {

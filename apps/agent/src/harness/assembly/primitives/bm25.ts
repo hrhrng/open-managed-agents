@@ -10,18 +10,55 @@ export interface Bm25Index {
 const K1 = 1.2;
 const B = 0.75;
 
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9_]+/i)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 1);
+function isCjkOnly(text: string): boolean {
+  if (text.length === 0) return false;
+  for (const char of text) {
+    if (!/\p{Script=Han}/u.test(char)) return false;
+  }
+  return true;
+}
+
+function cjkBigrams(text: string): string[] {
+  if (text.length < 2) return text.length === 1 ? [text] : [];
+  const out: string[] = [];
+  for (let i = 0; i < text.length - 1; i++) out.push(text.slice(i, i + 2));
+  return out;
+}
+
+function splitIdentifier(segment: string): string[] {
+  const withSpaces = segment.replace(/([a-z\d])([A-Z])/g, "$1 $2");
+  const chunks = withSpaces.split(/\s+/).filter(Boolean);
+  const parts: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.includes("__")) parts.push(...chunk.split("__").filter(Boolean));
+    else if (chunk.includes("_")) parts.push(...chunk.split("_").filter(Boolean));
+    else parts.push(chunk);
+  }
+  return parts;
+}
+
+export function tokenizeForSearch(text: string): string[] {
+  const lower = text.toLowerCase();
+  const segments = lower.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const tokens: string[] = [];
+  for (const segment of segments) {
+    for (const part of splitIdentifier(segment)) {
+      if (!part) continue;
+      if (isCjkOnly(part)) {
+        tokens.push(...cjkBigrams(part));
+        continue;
+      }
+      if (part.length > 1) tokens.push(part);
+      else if (/\p{L}/u.test(part) || /\p{N}/u.test(part)) tokens.push(part);
+    }
+  }
+  return tokens;
 }
 
 export function createBm25Index(documents: Bm25Document[]): Bm25Index {
   const docs = documents.map((doc) => ({
     id: doc.id,
-    tokens: tokenize(doc.text),
+    tokens: tokenizeForSearch(doc.text),
   }));
   const docLengths = docs.map((d) => d.tokens.length);
   const avgLen = docLengths.length === 0
@@ -37,7 +74,7 @@ export function createBm25Index(documents: Bm25Document[]): Bm25Index {
 
   return {
     search(query: string, limit: number): string[] {
-      const qTerms = tokenize(query);
+      const qTerms = tokenizeForSearch(query);
       if (qTerms.length === 0 || n === 0) return [];
 
       const scores = docs.map((doc, i) => {

@@ -5,8 +5,6 @@ export interface ParsedToolSearchQuery {
   required: string[];
   /** Free-text terms (BM25). */
   terms: string[];
-  /** When the whole query is one token, treat as MCP server name filter. */
-  serverName?: string;
 }
 
 const SELECT_PREFIX = /^select:\s*/i;
@@ -30,12 +28,25 @@ export function parseToolSearchQuery(raw: string): ParsedToolSearchQuery {
     else terms.push(part.toLowerCase());
   }
 
-  const serverName = parts.length === 1 && !parts[0].startsWith("+") ? parts[0] : undefined;
-  return { selected: [], required, terms, serverName };
+  return { selected: [], required, terms };
 }
 
 export function matchesRequiredTerms(haystack: string, required: string[]): boolean {
   if (required.length === 0) return true;
   const lower = haystack.toLowerCase();
   return required.every((term) => lower.includes(term));
+}
+
+/**
+ * When the query is a single free-text token, treat it as an MCP server filter
+ * only if it matches a known server name from the catalog.
+ */
+export function resolveServerNameFilter(
+  parsed: ParsedToolSearchQuery,
+  knownServerNames: ReadonlySet<string>,
+): string | undefined {
+  if (parsed.selected.length > 0 || parsed.required.length > 0) return undefined;
+  if (parsed.terms.length !== 1) return undefined;
+  const token = parsed.terms[0];
+  return knownServerNames.has(token) ? token : undefined;
 }

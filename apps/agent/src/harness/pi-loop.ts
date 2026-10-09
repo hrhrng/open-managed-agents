@@ -38,7 +38,7 @@ import {
 } from "./compaction-config";
 import { emitHarnessToolUseFromCall, isMcpTool } from "./default-loop";
 import { withPiRuntimeRequestOptions } from "./pi-provider";
-import { createPiToolAssembly } from "./assembly/pi-tool-assembly";
+import { createPiToolAssembly } from "./assembly/adapters/pi";
 import { toolsToPi, valueToPiContent } from "./pi-loop-tools";
 
 const EMPTY_USAGE: Usage = {

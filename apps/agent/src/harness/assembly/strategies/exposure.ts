@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import type { Api } from "@earendil-works/pi-ai";
 import type { ToolAssemblyConfig } from "../config";
-import { estimateToolDefinitionsChars, isMcpToolName } from "../catalog";
+import { estimateToolDefinitionsTokens, isMcpToolName } from "../catalog";
 
 export interface ToolExposurePlan {
   /** Whether deferred MCP tools are hidden behind `tool_search`. */
@@ -13,7 +13,7 @@ export interface ToolExposurePlan {
   deferredNames: string[];
 }
 
-export interface ToolExposureComponent {
+export interface ToolExposureStrategy {
   plan(input: {
     allTools: AgentTool[];
     loadedToolNames: ReadonlySet<string>;
@@ -28,7 +28,7 @@ function isResidentTool(name: string, alwaysLoad: ReadonlySet<string>): boolean 
   return alwaysLoad.has(name);
 }
 
-export function createToolExposureComponent(): ToolExposureComponent {
+export function createToolExposureStrategy(): ToolExposureStrategy {
   return {
     plan({ allTools, loadedToolNames, config, model }) {
       const byName = new Map(allTools.map((tool) => [tool.name, tool]));
@@ -41,8 +41,8 @@ export function createToolExposureComponent(): ToolExposureComponent {
       if (config.mode === "on") {
         toolSearchEnabled = deferredCandidates.length > 0;
       } else if (config.mode === "auto" && deferredCandidates.length > 0) {
-        const budget = model.contextWindow * config.autoThresholdFraction;
-        toolSearchEnabled = estimateToolDefinitionsChars(deferredCandidates) > budget;
+        const budgetTokens = Math.floor(model.contextWindow * config.autoThresholdFraction);
+        toolSearchEnabled = estimateToolDefinitionsTokens(deferredCandidates) > budgetTokens;
       }
 
       if (!toolSearchEnabled) {

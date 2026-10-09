@@ -1,12 +1,17 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { Agent, AgentTool } from "@earendil-works/pi-agent-core";
-import type { HarnessContext } from "../interface";
-import { toolsToPi } from "../pi-loop-tools";
-import { createToolCatalogSearch } from "./components/tool-catalog-search";
-import { createToolExposureComponent } from "./components/tool-exposure";
-import { buildToolCatalog } from "./catalog";
-import { resolveToolAssemblyConfig } from "./config";
-import type { AssemblyState, ToolCatalogEntry } from "./types";
+import type { HarnessContext } from "../../interface";
+import { toolsToPi } from "../../pi-loop-tools";
+import { createToolCatalogSearch } from "../components/tool-catalog-search";
+import { createToolExposureStrategy } from "../strategies/exposure";
+import { buildToolCatalog } from "../catalog";
+import { resolveToolAssemblyConfig } from "../config";
+import { appendDeferredIndex } from "../deferred-prompt";
+import {
+  broadcastLoadedToolNames,
+  restoreLoadedToolNames,
+} from "../loaded-tools-state";
+import type { AssemblyState, ToolCatalogEntry } from "../types";
 
 const TOOL_SEARCH_NAME = "tool_search";
 
@@ -35,27 +40,16 @@ function formatSearchResult(entries: ToolCatalogEntry[], tools: AgentTool[]): st
   return lines.join("\n").trim();
 }
 
-function appendDeferredIndex(systemPrompt: string, deferredNames: string[]): string {
-  if (deferredNames.length === 0) return systemPrompt;
-  const block = [
-    "",
-    "<deferred-tools>",
-    "The following tools are not loaded yet. Call tool_search to load them for the next turn.",
-    ...deferredNames.map((name) => `- ${name}`),
-    "</deferred-tools>",
-  ].join("\n");
-  return `${systemPrompt}${block}`;
-}
-
 export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const config = resolveToolAssemblyConfig(ctx.agent);
-  const exposure = createToolExposureComponent();
+  const exposure = createToolExposureStrategy();
   const search = createToolCatalogSearch();
   const allTools = toolsToPi(ctx);
   const catalog = buildToolCatalog(allTools);
-  const loaded = new Set<string>();
+  const loaded = restoreLoadedToolNames(ctx.runtime.history.getEvents());
   const baseSystemPrompt = ctx.systemPrompt;
   const model = ctx.pi!.model;
+  let lastDeferredHintKey = "";
 
   const toolSearchPiTool: AgentTool = {
     name: TOOL_SEARCH_NAME,
@@ -74,13 +68,17 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
         ? Math.max(1, Math.min(32, Math.floor(record.limit)))
         : config.searchLimit;
       const result = search.search(catalog, { query, limit });
-      for (const entry of result.entries) loaded.add(entry.name);
+      const newlyLoaded = result.entries.map((e) => e.name);
+      for (const name of newlyLoaded) loaded.add(name);
+      if (newlyLoaded.length > 0) {
+        broadcastLoadedToolNames(ctx.runtime.broadcast.bind(ctx.runtime), newlyLoaded);
+      }
       const text = result.entries.length === 0
         ? "No tools matched. Try different keywords or select:tool_name."
         : `Loaded ${result.entries.length} tool(s) for the next turn:\n\n${formatSearchResult(result.entries, allTools)}`;
       return {
         content: [{ type: "text", text }],
-        details: { loadedToolNames: result.entries.map((e) => e.name) },
+        details: { loadedToolNames: newlyLoaded },
       };
     },
   };
@@ -122,11 +120,16 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
         if (!plan.toolSearchEnabled || plan.deferredNames.length === 0) {
           return { context: baseContext };
         }
+        const hintKey = plan.deferredNames.slice().sort().join("\0");
+        if (hintKey === lastDeferredHintKey) {
+          return { context: baseContext };
+        }
+        lastDeferredHintKey = hintKey;
         return {
           context: baseContext,
           messages: [{
             role: "user",
-            content: `<system-reminder>Deferred tools still available via tool_search: ${plan.deferredNames.join(", ")}</system-reminder>`,
+            content: `<system-reminder>Deferred tools changed (${plan.deferredNames.length} still unloaded). Use tool_search to load more.</system-reminder>`,
             timestamp: Date.now(),
           }],
         };

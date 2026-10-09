@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { createToolExposureComponent } from "../src/harness/assembly/components/tool-exposure";
+import { createToolExposureStrategy } from "../src/harness/assembly/strategies/exposure";
 import type { ToolAssemblyConfig } from "../src/harness/assembly/config";
 
 const model = {
@@ -12,11 +12,11 @@ const model = {
   maxTokens: 2_000,
 } as const;
 
-function mcpTool(name: string): AgentTool {
+function mcpTool(name: string, description = `MCP tool ${name}`): AgentTool {
   return {
     name,
     label: name,
-    description: `MCP tool ${name}`,
+    description,
     parameters: Type.Object({}),
     execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
   };
@@ -32,8 +32,8 @@ function builtinTool(name: string): AgentTool {
   };
 }
 
-describe("tool exposure component", () => {
-  const exposure = createToolExposureComponent();
+describe("tool exposure strategy", () => {
+  const exposure = createToolExposureStrategy();
 
   it("exposes all tools when tool_search mode is off", () => {
     const all = [builtinTool("read"), mcpTool("mcp__github__search")];
@@ -96,5 +96,29 @@ describe("tool exposure component", () => {
       "tool_search",
     ]);
     expect(plan.deferredNames).toEqual([]);
+  });
+
+  it("enables tool_search in auto mode when deferred defs exceed token budget", () => {
+    const search: AgentTool = {
+      name: "tool_search",
+      label: "tool_search",
+      description: "search",
+      parameters: Type.Object({ query: Type.String() }),
+      execute: async () => ({ content: [{ type: "text", text: "" }] }),
+    };
+    const heavy = mcpTool("mcp__github__search", "x".repeat(8_000));
+    const config: ToolAssemblyConfig = {
+      mode: "auto",
+      searchLimit: 8,
+      autoThresholdFraction: 0.1,
+      alwaysLoad: new Set(),
+    };
+    const plan = exposure.plan({
+      allTools: [builtinTool("read"), heavy, search],
+      loadedToolNames: new Set(),
+      config,
+      model,
+    });
+    expect(plan.toolSearchEnabled).toBe(true);
   });
 });

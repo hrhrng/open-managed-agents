@@ -3,6 +3,7 @@ import { createBm25Index } from "../primitives/bm25";
 import {
   matchesRequiredTerms,
   parseToolSearchQuery,
+  resolveServerNameFilter,
 } from "../primitives/tool-search-query";
 import type { ToolCatalogEntry, ToolSearchComponent, ToolSearchOptions } from "../types";
 
@@ -13,6 +14,14 @@ function catalogText(entry: ToolCatalogEntry): string {
     entry.serverName ?? "",
     entry.parametersText ?? "",
   ].join("\n");
+}
+
+function knownServerNames(catalog: ToolCatalogEntry[]): Set<string> {
+  const names = new Set<string>();
+  for (const entry of catalog) {
+    if (entry.serverName) names.add(entry.serverName.toLowerCase());
+  }
+  return names;
 }
 
 export function createToolCatalogSearch(): ToolSearchComponent {
@@ -28,10 +37,12 @@ export function createToolCatalogSearch(): ToolSearchComponent {
         return { entries: entries.slice(0, limit), tools: [] };
       }
 
+      const serverName = resolveServerNameFilter(parsed, knownServerNames(catalog));
+
       let pool = catalog;
-      if (parsed.serverName) {
+      if (serverName) {
         pool = pool.filter(
-          (entry) => entry.serverName?.toLowerCase() === parsed.serverName!.toLowerCase(),
+          (entry) => entry.serverName?.toLowerCase() === serverName.toLowerCase(),
         );
       }
 
@@ -40,7 +51,7 @@ export function createToolCatalogSearch(): ToolSearchComponent {
       const index = createBm25Index(
         pool.map((entry) => ({ id: entry.name, text: catalogText(entry) })),
       );
-      const queryText = parsed.terms.join(" ");
+      const queryText = serverName ? "" : parsed.terms.join(" ");
       const ranked = queryText.trim()
         ? index.search(queryText, limit)
         : pool.slice(0, limit).map((entry) => entry.name);

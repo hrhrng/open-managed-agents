@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { auditRepository, loadPublishedPackages } from "./release-check.mjs";
+import { auditRepository, loadPublishedPackages, parseVersion } from "./release-check.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const script = path.join(repoRoot, "scripts/release-check.mjs");
@@ -20,6 +20,25 @@ function untaggedExcludingPendingPublish(cwd, untagged, packageVersionOverrides 
     }),
   );
   return untagged.filter((entry) => !pending.has(`${entry.package}@${entry.version}`));
+}
+
+/** Stable @openma/cli version one patch ahead of the given x.y.z. */
+function bumpCliPatch(version) {
+  const parsed = parseVersion(version);
+  assert.equal(parsed.prerelease, null);
+  return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+}
+
+/**
+ * Version on a changesets "Version Packages" PR: package.json on that branch is already
+ * bumped. On main, simulate the next patch release (current + 1).
+ */
+function pendingCliPublishVersion(cwd, untagged) {
+  const current = JSON.parse(readFileSync(path.join(cwd, "packages/cli/package.json"), "utf8")).version;
+  if (untagged.some((entry) => entry.package === "@openma/cli" && entry.version === current)) {
+    return current;
+  }
+  return bumpCliPatch(current);
 }
 
 const historicalUntaggedVersions = [
@@ -83,9 +102,10 @@ test("historical tags: complete releases pass and @openma/cli@0.6.0-beta.1 is mi
 
 test("version PR adds one untagged new version: pending package.json version is ignored", () => {
   const report = auditRepository(repoRoot);
-  const versionPrUntagged = [...report.untagged, { package: "@openma/cli", version: "0.6.2" }];
+  const pendingVersion = pendingCliPublishVersion(repoRoot, report.untagged);
+  const versionPrUntagged = [...report.untagged, { package: "@openma/cli", version: pendingVersion }];
   assert.deepEqual(
-    untaggedExcludingPendingPublish(repoRoot, versionPrUntagged, { "@openma/cli": "0.6.2" })
+    untaggedExcludingPendingPublish(repoRoot, versionPrUntagged, { "@openma/cli": pendingVersion })
       .map((entry) => `${entry.package}@${entry.version}`)
       .sort(),
     historicalUntaggedVersions,

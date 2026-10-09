@@ -10,6 +10,7 @@ import {
   type Api,
   type Model as PiModel,
 } from "@earendil-works/pi-ai";
+import { findPiCatalogModel } from "@open-managed-agents/managed-agents-application/agents/pi-model-catalog";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 
 export interface ModelCardCatalogRecord {
@@ -99,7 +100,8 @@ function resolvePiModel(card: ModelCardCatalogRecord): PiModel<Api> | null {
   try {
     const providerId = normalizeProviderId(card.provider);
     const provider = builtinProviders().find((candidate) => candidate.id === providerId);
-    const catalogModel = provider?.getModels().find((model) => model.id === card.model);
+    const catalogModel = findPiCatalogModel(card.model)
+      ?? provider?.getModels().find((model) => model.id === card.model);
     if (catalogModel) return catalogModel;
 
     const config = card.pi_config as Partial<PiModel<Api>> | null;

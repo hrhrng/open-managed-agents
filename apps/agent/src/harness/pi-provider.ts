@@ -13,24 +13,24 @@ import {
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
+import {
+  findPiCatalogModel,
+  PI_UNKNOWN_MODEL_CONTEXT_WINDOW,
+  PI_UNKNOWN_MODEL_MAX_TOKENS,
+  resolvePiCatalogContextWindow,
+  resolvePiCatalogModelId,
+} from "@open-managed-agents/managed-agents-application/agents/pi-model-catalog";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getApiProvider } from "@earendil-works/pi-ai/compat";
 export { toAiSdkLanguageModel } from "./pi-ai-sdk";
 
-/** Unknown / non-catalog models: conservative context floor for OMA (not 128k). */
-export const PI_UNKNOWN_MODEL_CONTEXT_WINDOW = 256_000;
-export const PI_UNKNOWN_MODEL_MAX_TOKENS = 32_768;
-
-/** pi-ai 1.1.0 catalog renames — keep stored model-card wire ids working. */
-const PI_CATALOG_MODEL_ID_ALIASES: Record<string, string> = {
-  "deepseek-v4-flash": "deepseek-flash",
-};
-
-export function resolvePiCatalogModelId(modelId: string): string {
-  return PI_CATALOG_MODEL_ID_ALIASES[modelId] ?? modelId;
-}
+export {
+  PI_UNKNOWN_MODEL_CONTEXT_WINDOW,
+  PI_UNKNOWN_MODEL_MAX_TOKENS,
+  resolvePiCatalogModelId,
+} from "@open-managed-agents/managed-agents-application/agents/pi-model-catalog";
 
 export interface PiModelRuntime {
   models: Models;
@@ -105,8 +105,8 @@ interface ProviderPlan {
 export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime {
   const plan = resolveProviderPlan(input.provider, input.piConfig);
   const catalogModels = plan.catalog?.getModels() ?? [];
-  const catalogId = resolvePiCatalogModelId(input.model);
-  const catalogModel = catalogModels.find((model) => model.id === catalogId);
+  const catalogModel = catalogModels.find((model) => model.id === resolvePiCatalogModelId(input.model))
+    ?? findPiCatalogModel(input.model);
   const baseUrl = input.baseURL ?? catalogModel?.baseUrl ?? plan.catalog?.baseUrl;
   const api = input.piConfig?.api
     ?? plan.api
@@ -188,14 +188,7 @@ export function resolvePiAgentModelContextWindow(
   modelId: string,
   piConfig?: PiModelConfig,
 ): number {
-  const catalogId = resolvePiCatalogModelId(modelId);
-  for (const provider of builtinProviders()) {
-    const match = provider.getModels().find(
-      (model) => model.id === catalogId || model.id === modelId,
-    );
-    if (match !== undefined) return match.contextWindow;
-  }
-  return piConfig?.contextWindow ?? PI_UNKNOWN_MODEL_CONTEXT_WINDOW;
+  return resolvePiCatalogContextWindow(modelId, piConfig?.contextWindow);
 }
 
 /**

@@ -141,6 +141,9 @@ importers:
       '@open-managed-agents/managed-agents-adapters-runtime':
         specifier: workspace:*
         version: link:../../packages/managed-agents-adapters-runtime
+      '@open-managed-agents/managed-agents-application':
+        specifier: workspace:*
+        version: link:../../packages/managed-agents-application
       '@open-managed-agents/managed-runtime-cloudflare':
         specifier: workspace:*
         version: link:../../packages/managed-runtime-cloudflare

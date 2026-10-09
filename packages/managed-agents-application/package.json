@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./agents-port": "./src/agents/port.ts",
+    "./agents/pi-model-catalog": "./src/agents/pi-model-catalog.ts",
     "./agents-persistence-port": "./src/compat/agents-persistence-port.ts",
     "./session-events-persistence-port": "./src/compat/session-events-persistence-port.ts",
     "./sessions-persistence-port": "./src/compat/sessions-persistence-port.ts",

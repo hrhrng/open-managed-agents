@@ -130,6 +130,20 @@ fields are rejected; OpenMA fields belong under `_oma`, while model-provider
 options belong under `model.provider_options` (or
 `_oma.aux_model.provider_options`).
 
+### Deferred MCP tools (`tool_search`)
+
+Pi sessions can hide large MCP tool catalogs behind a built-in `tool_search`
+tool. Configure via agent `metadata` (top-level or `_oma` mirror):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `tool_search` | `auto` | `auto` enables search when deferred MCP definitions exceed `tool_search_auto_threshold` of the model context (token estimate); `on` always defers; `off` exposes every tool. |
+| `tool_search_limit` | `8` | Max tools returned per search (1–32). |
+| `tool_search_auto_threshold` | `0.1` | Fraction of context window used in `auto` mode. |
+| `tool_search_always_load` | `[]` | MCP tool names always exposed without search. |
+
+Loaded tools persist in the session event log and are restored on harness resume.
+
 ## Pi-backed Model Cards
 
 `provider` is an open Pi provider id (`anthropic`, `openai`, `deepseek`,

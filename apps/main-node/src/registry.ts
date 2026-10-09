@@ -43,6 +43,11 @@ import type {
 import type { LanguageModel } from "ai";
 import { getLogger } from "@open-managed-agents/observability";
 import type { EventStreamHub } from "./lib/event-stream-hub.js";
+import {
+  createNodeHarnessUsageLedger,
+  ledgerToApiTokenUsage,
+  type NodeHarnessUsageLedger,
+} from "./lib/node-harness-usage.js";
 
 const log = getLogger("session-registry");
 
@@ -95,6 +100,7 @@ export interface SessionRegistryDeps {
     sessionId: string;
     tenantId: string;
     eventLog: SqlEventLog;
+    usageLedger: NodeHarnessUsageLedger;
   }): Promise<unknown>;
 
   /** Sandbox workdir root, e.g. /app/data/sandboxes. Per-session dirs
@@ -111,12 +117,26 @@ interface SessionEntry {
   machine: SessionStateMachine;
   sandbox: SandboxPort;
   eventLog: SqlEventLog;
+  usageLedger: NodeHarnessUsageLedger;
 }
 
 export class SessionRegistry {
   private map = new Map<string, Promise<SessionEntry>>();
 
   constructor(private deps: SessionRegistryDeps) {}
+
+  async getApiTokenUsage(
+    sessionId: string,
+  ): Promise<ReturnType<typeof ledgerToApiTokenUsage> | null> {
+    const entry = await this.map.get(sessionId);
+    if (entry === undefined) return null;
+    try {
+      const resolved = await entry;
+      return ledgerToApiTokenUsage(resolved.usageLedger);
+    } catch {
+      return null;
+    }
+  }
 
   /**
    * Get-or-create the SessionStateMachine for a session. Lazy: the
@@ -253,6 +273,8 @@ export class SessionRegistry {
       // Node has no eviction — leave hintTurnInFlight unset.
     });
 
+    const usageLedger = createNodeHarnessUsageLedger();
+
     const machine = new SessionStateMachine({
       sessionId,
       tenantId,
@@ -289,6 +311,7 @@ export class SessionRegistry {
           sessionId,
           tenantId,
           eventLog,
+          usageLedger,
         }),
       beforeSandboxDestroy: async () => {
         await this.deps.sandboxOrchestrator.snapshotWorkspaceNow(sandbox, {
@@ -299,6 +322,6 @@ export class SessionRegistry {
       publish: (event: SessionEvent) => this.deps.hub.publish(sessionId, event),
     });
 
-    return { machine, sandbox, eventLog };
+    return { machine, sandbox, eventLog, usageLedger };
   }
 }

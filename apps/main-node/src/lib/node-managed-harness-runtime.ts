@@ -21,6 +21,13 @@ import {
   encodeRuntimeHistoryEvent,
   encodeRuntimeSessionEvent,
 } from "@open-managed-agents/managed-agents-adapters-runtime";
+import {
+  createNodeHarnessUsageLedger,
+  creditCacheTokensFromSpanEnd,
+  creditHarnessUsage,
+  ledgerToManagedSessionUsage,
+  type NodeHarnessUsageLedger,
+} from "./node-harness-usage.js";
 
 type UnstampedRuntimeProducedSessionEvent =
   RuntimeProducedSessionEvent extends infer Event
@@ -257,6 +264,7 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
   private readonly applicationHistoryEvents: SessionEventView[];
   private outputChain: Promise<void> = Promise.resolve();
   private readonly nextStamp: () => string;
+  private readonly usageLedger: NodeHarnessUsageLedger;
   /** Number of `agent.*` events (tool calls, messages, thinking) produced so far:
    * a turn that produced none has no side effects and is safe to re-run. */
   agentEventCount = 0;
@@ -270,9 +278,25 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
     this.abortSignal = input.abortSignal;
     this.applicationHistoryEvents = structuredClone(input.events);
     this.nextStamp = createStrictlyIncreasingEventStamp(input.clock);
+    this.usageLedger = createNodeHarnessUsageLedger();
   }
 
+  reportUsage = async (
+    input_tokens: number,
+    output_tokens: number,
+  ): Promise<void> => {
+    creditHarnessUsage(this.usageLedger, { input_tokens, output_tokens });
+    this.broadcastProducedEvent({
+      type: "session.usage",
+      usage: ledgerToManagedSessionUsage(this.usageLedger),
+    });
+  };
+
   broadcast = (event: SessionEvent): void => {
+    creditCacheTokensFromSpanEnd(
+      this.usageLedger,
+      event as { type?: string; model_usage?: Record<string, number | undefined> },
+    );
     const frame = structuredClone(event) as SessionEvent & {
       id?: string;
       processed_at?: string;
@@ -288,6 +312,7 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
       this.applicationHistoryEvents.push(applicationEvent);
     }
     void this.enqueue(frame);
+    this.publishSessionUsageIfCacheChanged(event);
   };
 
   broadcastProducedEvent(event: UnstampedRuntimeProducedSessionEvent): string {
@@ -302,6 +327,20 @@ export class ManagedNodeHarnessRuntime implements HarnessRuntime {
     this.applicationHistoryEvents.push(stamped);
     void this.enqueue(frame);
     return stamped.id;
+  }
+
+  private publishSessionUsageIfCacheChanged(event: SessionEvent): void {
+    if (event.type !== "span.model_request_end") return;
+    const usage = (event as { model_usage?: Record<string, number | undefined> })
+      .model_usage;
+    if (!usage) return;
+    const cc = usage.cache_creation_input_tokens || 0;
+    const cr = usage.cache_read_input_tokens || 0;
+    if (cc === 0 && cr === 0) return;
+    this.broadcastProducedEvent({
+      type: "session.usage",
+      usage: ledgerToManagedSessionUsage(this.usageLedger),
+    });
   }
 
   /** Event history is read back ordered by `processed_at` (ms precision) and

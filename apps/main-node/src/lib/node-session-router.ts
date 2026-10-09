@@ -25,6 +25,7 @@ import type {
 } from "@open-managed-agents/session-runtime";
 import type { SessionRegistry } from "../registry.js";
 import type { EventStreamHub } from "./event-stream-hub.js";
+import { aggregateSpanModelUsageFromEvents, ledgerToApiTokenUsage } from "./node-harness-usage.js";
 
 interface NodeSessionRouterDeps {
   sql: SqlClient;
@@ -316,21 +317,26 @@ export class NodeSessionRouter implements SessionRouter {
       .bind(sessionId)
       .first<{ status: string }>();
     if (!sess) return null;
+    const liveLedger = await this.deps.registry.getApiTokenUsage(sessionId);
+    if (liveLedger !== null) {
+      return {
+        status: sess.status,
+        usage: liveLedger,
+      };
+    }
     const log = this.deps.newEventLog(sessionId);
     const events = await log.getEventsAsync();
-    let input = 0;
-    let output = 0;
-    for (const ev of events) {
-      const u = (ev as { usage?: { input_tokens?: number; output_tokens?: number } })
-        .usage;
-      if (u) {
-        input += u.input_tokens ?? 0;
-        output += u.output_tokens ?? 0;
-      }
-    }
+    const fromSpans = ledgerToApiTokenUsage(
+      aggregateSpanModelUsageFromEvents(
+        events as Array<{
+          type?: string;
+          model_usage?: Record<string, number | undefined>;
+        }>,
+      ),
+    );
     return {
       status: sess.status,
-      usage: { input_tokens: input, output_tokens: output },
+      usage: fromSpans,
     };
   }
 

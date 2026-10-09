@@ -1,6 +1,5 @@
-import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
 import {
-  Type,
   type Api,
   type AssistantMessage,
   type ImageContent,
@@ -18,7 +17,6 @@ import {
   estimateTextTokens,
 } from "@earendil-works/pi-ai/utils/estimate";
 import type { ModelMessage } from "ai";
-import { z } from "zod";
 import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
 import {
   classifyExternalError,
@@ -40,6 +38,8 @@ import {
 } from "./compaction-config";
 import { emitHarnessToolUseFromCall, isMcpTool } from "./default-loop";
 import { withPiRuntimeRequestOptions } from "./pi-provider";
+import { createPiToolAssembly } from "./assembly/pi-tool-assembly";
+import { toolsToPi, valueToPiContent } from "./pi-loop-tools";
 
 const EMPTY_USAGE: Usage = {
   input: 0,
@@ -127,12 +127,13 @@ export class PiHarness implements HarnessInterface {
     let providerFailure: AssistantMessage | undefined;
     let producedOutput = false;
 
+    const toolAssembly = createPiToolAssembly(ctx);
     const agent = new Agent({
       initialState: {
-        systemPrompt: ctx.systemPrompt,
+        systemPrompt: toolAssembly.systemPrompt,
         model: ctx.pi!.model,
         messages,
-        tools: toolsToPi(ctx),
+        tools: toolAssembly.initialTools,
         // The tenant runtime maps effort to the model's supported Pi level.
         thinkingLevel: ctx.pi!.thinkingLevel,
       },
@@ -145,6 +146,7 @@ export class PiHarness implements HarnessInterface {
         ),
       toolExecution: "parallel",
     });
+    toolAssembly.attach(agent);
 
     const unsubscribe = agent.subscribe(async (event) => {
       const result = await translatePiEvent(event, ctx, state);
@@ -546,61 +548,6 @@ function clearMessageState(state: LiveMessageState): void {
   state.textIds.clear();
   state.thinkingIds.clear();
   state.toolIds.clear();
-}
-
-function toolsToPi(ctx: HarnessContext): AgentTool[] {
-  return Object.entries(ctx.tools).map(([name, raw]) => {
-    const tool = raw as {
-      description?: string;
-      inputSchema?: unknown;
-      parameters?: unknown;
-      execute?: (input: unknown, options?: unknown) => Promise<unknown>;
-    };
-    const schema = toJsonSchema(tool.inputSchema ?? tool.parameters);
-    return {
-      name,
-      label: name,
-      description: tool.description ?? name,
-      parameters: Type.Unsafe<Record<string, unknown>>(schema),
-      execute: async (toolCallId, params, signal) => {
-        if (!tool.execute) {
-          ctx.runtime.pendingConfirmations ??= [];
-          ctx.runtime.pendingConfirmations.push(toolCallId);
-          return {
-            content: [{ type: "text", text: "Tool confirmation required" }],
-            details: { openmaPendingConfirmation: true },
-            terminate: true,
-          };
-        }
-        const value = await tool.execute(params, {
-          toolCallId,
-          messages: [],
-          abortSignal: signal,
-        });
-        return { content: valueToPiContent(value), details: value };
-      },
-    };
-  });
-}
-
-function toJsonSchema(input: unknown): Record<string, unknown> {
-  if (!input || typeof input !== "object") {
-    return { type: "object", additionalProperties: true };
-  }
-  const candidate = input as { jsonSchema?: unknown; _zod?: unknown };
-  if (candidate.jsonSchema && typeof candidate.jsonSchema === "object") {
-    return candidate.jsonSchema as Record<string, unknown>;
-  }
-  try {
-    return z.toJSONSchema(input as z.ZodType) as Record<string, unknown>;
-  } catch {
-    return input as Record<string, unknown>;
-  }
-}
-
-function valueToPiContent(value: unknown): Array<TextContent | ImageContent> {
-  if (typeof value === "string") return [{ type: "text", text: value }];
-  return [{ type: "text", text: JSON.stringify(value) ?? String(value) }];
 }
 
 function piContentToWire(content: Array<TextContent | ImageContent>): ContentBlock[] {

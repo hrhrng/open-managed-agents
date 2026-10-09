@@ -108,7 +108,11 @@ import {
   getSkillFilesFromManagedSource,
   mountSkillFiles,
 } from "../harness/skills";
-import { agentUsesAssemblySkillMount } from "../harness/assembly/skill-config";
+import {
+  agentUsesAssemblySkillMount,
+  resolveSkillAssemblyConfig,
+  skillMountsShouldFetchBodies,
+} from "../harness/assembly/skill-config";
 import { resolveAppendablePrompts } from "./appendable-prompts";
 import { createCfBrowserHarness } from "@open-managed-agents/browser-harness/cf";
 import type { BrowserHarness, BrowserBillingHook, BrowserSession } from "@open-managed-agents/browser-harness";
@@ -5072,6 +5076,10 @@ export class SessionDO extends DurableObject<Env> {
     const platformReminders: Array<{ source: string; text: string }> = [];
     const skillMounts: SkillMountDescriptor[] = [];
     const assemblySkillMount = agentUsesAssemblySkillMount(agent);
+    const skillAssemblyConfig = assemblySkillMount ? resolveSkillAssemblyConfig(agent) : undefined;
+    const fetchSkillBodies = skillAssemblyConfig
+      ? skillMountsShouldFetchBodies(skillAssemblyConfig.mode)
+      : false;
 
     // Platform-built-in appendable prompts the agent author opted into. Use
     // for provider-specific syntax (e.g. Linear's @-mention URL form) that
@@ -5115,7 +5123,7 @@ export class SessionDO extends DurableObject<Env> {
               this.env.CONFIG_KV,
               this.env.FILES_BUCKET,
               this.state.tenant_id,
-              { fetchBodies: false },
+              { fetchBodies: fetchSkillBodies },
             );
             skillMounts.push(...customMounts);
           } else {

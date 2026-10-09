@@ -80,7 +80,7 @@ import { ApplicationBackedNodeManagedSessionRuntimeEngine, DefaultNodeManagedSes
 import { DefaultNodeManagedSessionRunner } from "../lib/node-managed-session-runner.js";
 import {
   buildNodeManagedSkillReminders,
-  buildNodeManagedSkillMounts,
+  resolveNodeManagedSkillMounts,
   buildNodeManagedAppendablePromptReminders,
   NodeManagedSessionInputPreparer,
 } from "../lib/node-managed-session-inputs.js";
@@ -599,7 +599,14 @@ export async function createManagedNodeRuntime(
       });
       const rawSystemPrompt = input.session.agent.system ?? "";
       const assemblySkills = agentUsesAssemblySkillMount(agent);
-      const skillMounts = assemblySkills ? buildNodeManagedSkillMounts(input.session) : undefined;
+      const skillMounts = assemblySkills
+        ? await resolveNodeManagedSkillMounts(
+          input.session,
+          managedPlatform
+            .app({ workspaceId: input.workspaceId })
+            .port(managedAgentsPortTokens.skillVersions),
+        )
+        : undefined;
       const platformReminders = [
         ...(assemblySkills ? [] : buildNodeManagedSkillReminders(input.session)),
         ...buildNodeManagedAppendablePromptReminders(input.session),

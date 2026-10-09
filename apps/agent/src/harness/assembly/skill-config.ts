@@ -58,3 +58,8 @@ export function agentUsesAssemblySkillMount(agent: AgentConfig): boolean {
   const harness = agent.harness ?? "default";
   return harness === "default" || harness === "pi";
 }
+
+/** Whether custom skill mounts need SKILL.md bytes from storage (inline / tool / budgeted). */
+export function skillMountsShouldFetchBodies(mode: SkillMountMode): boolean {
+  return mode === "inline" || mode === "tool" || mode === "budgeted";
+}

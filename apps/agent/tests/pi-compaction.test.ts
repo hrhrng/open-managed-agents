@@ -9,6 +9,7 @@ import {
   type Models,
 } from "@earendil-works/pi-ai";
 import type { HarnessRuntime } from "../src/harness/interface";
+import { resolveCompactionTriggerInputTokens } from "../src/harness/compaction-config";
 import {
   estimatePiMessagesTokens,
   PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
@@ -79,21 +80,31 @@ describe("Pi compaction policy", () => {
     expect(resolvePiCompactionPolicy({ compaction_strategy: "none" }).name).toBe("cc-style");
     expect(resolvePiCompactionPolicy({ compaction_strategy: "opencode-style" }).name).toBe("opencode-style");
 
-    const low = resolvePiCompactionPolicy({ compaction_trigger_fraction: -1 });
+    const lowMeta = { compaction_trigger_fraction: -1 };
+    const low = resolvePiCompactionPolicy(lowMeta);
     expect(low.shouldCompact([], {
-      messages: [{ role: "user", content: "12345678", timestamp: 1 }],
+      messages: [{ role: "user", content: "a".repeat(400), timestamp: 1 }],
       model,
       systemPrompt: "",
       tools: [],
-      compactionTriggerInputTokens: 100,
+      compactionTriggerInputTokens: resolveCompactionTriggerInputTokens(
+        model,
+        {},
+        lowMeta,
+      ),
     })).toBe(true);
-    const high = resolvePiCompactionPolicy({ compaction_trigger_fraction: 2 });
+    const highMeta = { compaction_trigger_fraction: 2 };
+    const high = resolvePiCompactionPolicy(highMeta);
     expect(high.shouldCompact([], {
       messages: [{ role: "user", content: "12345678", timestamp: 1 }],
       model,
       systemPrompt: "",
       tools: [],
-      compactionTriggerInputTokens: 10_000,
+      compactionTriggerInputTokens: resolveCompactionTriggerInputTokens(
+        model,
+        {},
+        highMeta,
+      ),
     })).toBe(false);
   });
 

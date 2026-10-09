@@ -170,7 +170,7 @@ describe("PiHarness", () => {
       { type: "agent.message", message_id: "a2", content: [{ type: "text", text: "d".repeat(200) }] },
     );
     ctx.agent.metadata = { compaction_trigger_fraction: 0.01 };
-    ctx.pi!.model = { ...ctx.pi!.model, contextWindow: 100 };
+    ctx.pi!.model = { ...ctx.pi!.model, contextWindow: 20_000 };
 
     let summaryTools: unknown;
     let summaryReasoning: unknown;
@@ -308,13 +308,17 @@ describe("PiHarness", () => {
         stopReason: "error",
         errorMessage: "prompt is too long: 12000 tokens > 10000 maximum",
       }),
+      fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: "prompt is too long: 12000 tokens > 10000 maximum",
+      }),
       fauxAssistantMessage("overflow recovery summary"),
       fauxAssistantMessage("recovered answer"),
     ]);
 
     await new PiHarness().run(ctx);
 
-    expect(faux.state.callCount).toBe(3);
+    expect(faux.state.callCount).toBe(4);
     expect(events.filter((event) => event.type === "agent.thread_context_compacted")).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({
       type: "agent.message",
@@ -332,25 +336,27 @@ describe("PiHarness", () => {
     );
     const contextWindow = 8_192;
     ctx.pi!.model = { ...ctx.pi!.model, contextWindow };
+    const lengthOverflow = fauxAssistantMessage([fauxThinking("partial plan")], {
+      stopReason: "length",
+      usage: {
+        input: contextWindow,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: contextWindow,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
     faux.setResponses([
-      fauxAssistantMessage([fauxThinking("partial plan")], {
-        stopReason: "length",
-        usage: {
-          input: contextWindow,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: contextWindow,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-      }),
+      lengthOverflow,
+      lengthOverflow,
       fauxAssistantMessage("length recovery summary"),
       fauxAssistantMessage("recovered after length"),
     ]);
 
     await new PiHarness().run(ctx);
 
-    expect(faux.state.callCount).toBe(3);
+    expect(faux.state.callCount).toBe(4);
     expect(events.some((event) => event.type === "agent.thinking")).toBe(false);
     expect(events.filter((event) => event.type === "agent.thread_context_compacted")).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({

@@ -1,68 +1,29 @@
-import type {
-  Agent,
-  AgentAcpConfig,
-  AgentEffortLevel,
-  AgentModel,
-  AgentRuntimeBinding,
-  AgentSpeed,
-} from "../domain/agent";
-import type { JsonObject } from "../domain/json";
+import type { Agent, AgentModel } from "../domain/agent";
 import type {
   AgentMcpServerInput,
+  AgentModelInput,
   AgentMultiagentInput,
+  AgentOpenMaInput,
   AgentSkillInput,
   AgentToolInput,
-} from "../domain/agent-definition";
+} from "./wire-shape-input.js";
 
 export type {
   AgentMcpServerInput,
   AgentMultiagentInput,
   AgentSkillInput,
   AgentToolInput,
-} from "../domain/agent-definition";
+} from "./wire-shape-input.js";
 
 export type { AgentEffortLevel, AgentSpeed } from "../domain/agent";
 
-export interface AgentModelInput {
-  id: string;
-  effort?: AgentEffortLevel | null;
-  inferenceGeo?: string | null;
-  providerOptions?: JsonObject | null;
-  speed?: AgentSpeed | null;
-  maxTokens?: number | null;
-}
-
-export interface AgentContextManagementEditInput {
-  type: "compact" | "compact_20260112";
-  trigger?: { type: "input_tokens"; value: number };
-  instructions?: string;
-  pause_after_compaction?: boolean;
-}
-
-export interface AgentContextManagementInput {
-  edits: AgentContextManagementEditInput[];
-}
-
-export interface AgentOpenAiModelSettingsInput {
-  max_tokens?: number;
-  context_management?: Array<{
-    type: "compaction";
-    compact_threshold: number;
-  }>;
-}
-
-export interface AgentOpenMaInput {
-  auxiliaryModel?: string | AgentModelInput | null;
-  appendablePrompts?: string[] | null;
-  contextManagement?: AgentContextManagementInput | null;
-  openaiModelSettings?: AgentOpenAiModelSettingsInput | null;
-  harness?: string | null;
-  acp?: AgentAcpConfig | null;
-  runtimeBinding?: AgentRuntimeBinding | null;
-  enableGeneralSubagent?: boolean | null;
-  /** Internal protocol-adapter state, never accepted from the public API. */
-  compatibility?: JsonObject | null;
-}
+export type {
+  AgentContextManagementEditWireInput as AgentContextManagementEditInput,
+  AgentContextManagementWireInput as AgentContextManagementInput,
+  AgentModelInput,
+  AgentOpenAiModelSettingsWireInput as AgentOpenAiModelSettingsInput,
+  AgentOpenMaInput,
+} from "./wire-shape-input.js";
 
 export type AgentModelView = AgentModel;
 

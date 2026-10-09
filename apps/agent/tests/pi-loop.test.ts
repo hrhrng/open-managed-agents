@@ -14,6 +14,8 @@ import { PiSummaryCompactionPolicy } from "../src/harness/pi-compaction";
 import { PiHarness } from "../src/harness/pi-loop";
 import { createPiModelRuntime } from "../src/harness/pi-provider";
 import { TOOL_ASSEMBLY_WARNING_SOURCE } from "../src/harness/assembly/loaded-tools-state";
+import { SKILL_ASSEMBLY_WARNING_SOURCE } from "../src/harness/assembly/loaded-skills-state";
+import { CONTEXT_REASSEMBLED_WARNING_SOURCE } from "../src/harness/assembly/context-reassembled-state";
 
 function makeContext(responses: ReturnType<typeof fauxAssistantMessage>[]) {
   const faux = fauxProvider({ tokensPerSecond: 100_000 });
@@ -160,6 +162,60 @@ describe("PiHarness", () => {
     }));
     expect(requestText).toContain("<conversation-summary>");
     expect(requestText).toContain("custom compacted summary");
+  });
+
+  it("re-assembles loaded skills after compaction before the main Pi turn", async () => {
+    const { ctx, events, faux } = makeContext([fauxAssistantMessage("after reassembly")]);
+    ctx.skillMounts = [{
+      skillId: "skill_compact",
+      name: "Compact Skill",
+      description: "demo",
+      mountRoot: "/workspace/.openma/skills/skill_compact/latest/",
+      body: "RETAINED_SKILL_BODY",
+      source: "custom",
+    }];
+    events.unshift(
+      {
+        type: "session.warning",
+        source: SKILL_ASSEMBLY_WARNING_SOURCE,
+        message: "loaded skill",
+        details: { loadedSkillIds: ["skill_compact"] },
+      },
+      { type: "user.message", content: [{ type: "text", text: "older" }] },
+      { type: "agent.message", message_id: "older", content: [{ type: "text", text: "older reply" }] },
+    );
+
+    const policy: PiCompactionPolicy = {
+      name: "test-policy",
+      shouldCompact: vi.fn(() => true),
+      compact: vi.fn(async () => ({
+        summary: [{ type: "text", text: "compacted summary" }],
+        pre_tokens: 50,
+        original_message_count: 4,
+        compacted_message_count: 1,
+      })),
+    };
+
+    faux.setResponses([fauxAssistantMessage("after reassembly")]);
+
+    const assemblyProbe = vi.fn();
+    const piAdapter = await import("../src/harness/assembly/adapters/pi");
+    const createAssembly = piAdapter.createPiToolAssembly;
+    vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+      const assembly = createAssembly(harnessCtx);
+      assemblyProbe(assembly.systemPrompt);
+      return assembly;
+    });
+
+    await new PiHarness({ compaction: policy }).run(ctx);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "session.warning",
+      source: CONTEXT_REASSEMBLED_WARNING_SOURCE,
+    }));
+    const turnSystemPrompt = assemblyProbe.mock.calls[0]?.[0] as string;
+    expect(turnSystemPrompt).toContain("RETAINED_SKILL_BODY");
+    expect(turnSystemPrompt).toContain("<post-compaction-loaded-skills>");
   });
 
   it("uses Pi itself for the built-in summary and keeps compaction best-effort", async () => {

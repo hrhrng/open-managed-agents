@@ -236,7 +236,10 @@ export class PiHarness implements HarnessInterface {
           tools: compactionCtx.tools,
         }),
       });
-      return this.persistCompaction(result, ctx);
+      const compacted = this.persistCompaction(result, ctx);
+      // §6 post-compaction re-assembly runs when `createPiToolAssembly` builds the
+      // next turn (skill/tool retention + `oma.context_reassembled` marker).
+      return compacted;
     } catch (error) {
       // Context compaction is a best-effort optimization. The canonical
       // history remains untouched when a policy/model fails, so the main

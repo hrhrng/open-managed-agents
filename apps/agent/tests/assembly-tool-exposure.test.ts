@@ -101,6 +101,29 @@ describe("tool exposure strategy", () => {
     expect(plan.deferredNames).toEqual([]);
   });
 
+  it("enables tool_search when forceToolSearch is set without deferred MCP tools", () => {
+    const searchTool = {
+      name: "tool_search",
+      label: "tool_search",
+      description: "search",
+      parameters: {},
+      execute: async () => ({ content: [], details: {} }),
+    };
+    const plan = exposure.plan({
+      allTools: [
+        { name: "read", label: "read", description: "r", parameters: {}, execute: async () => ({ content: [], details: {} }) },
+        searchTool,
+      ],
+      loadedToolNames: new Set(),
+      config: { mode: "off", alwaysLoad: new Set(), searchLimit: 8, autoThresholdFraction: 0.02 },
+      model,
+      forceToolSearch: true,
+    });
+    expect(plan.toolSearchEnabled).toBe(true);
+    expect(plan.exposed.map((t) => t.name)).toContain("tool_search");
+    expect(plan.deferredNames).toEqual([]);
+  });
+
   it("enables tool_search in auto mode when deferred defs exceed token budget", () => {
     const search: AgentTool = {
       name: "tool_search",

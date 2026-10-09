@@ -102,10 +102,17 @@ import { ensureSetupApplied } from "./setup-on-warmup";
 import {
   resolveSkills,
   resolveCustomSkills,
+  resolveCustomSkillMounts,
+  type SkillMountDescriptor,
   getSkillFiles,
   getSkillFilesFromManagedSource,
   mountSkillFiles,
 } from "../harness/skills";
+import {
+  agentUsesAssemblySkillMount,
+  resolveSkillAssemblyConfig,
+  skillMountsShouldFetchBodies,
+} from "../harness/assembly/skill-config";
 import { resolveAppendablePrompts } from "./appendable-prompts";
 import { createCfBrowserHarness } from "@open-managed-agents/browser-harness/cf";
 import type { BrowserHarness, BrowserBillingHook, BrowserSession } from "@open-managed-agents/browser-harness";
@@ -5067,6 +5074,12 @@ export class SessionDO extends DurableObject<Env> {
     // want to handle them differently — e.g. RAG harness might want to
     // resolve a query before injecting.)
     const platformReminders: Array<{ source: string; text: string }> = [];
+    const skillMounts: SkillMountDescriptor[] = [];
+    const assemblySkillMount = agentUsesAssemblySkillMount(agent);
+    const skillAssemblyConfig = assemblySkillMount ? resolveSkillAssemblyConfig(agent) : undefined;
+    const fetchSkillBodies = skillAssemblyConfig
+      ? skillMountsShouldFetchBodies(skillAssemblyConfig.mode)
+      : false;
 
     // Platform-built-in appendable prompts the agent author opted into. Use
     // for provider-specific syntax (e.g. Linear's @-mention URL form) that
@@ -5087,18 +5100,43 @@ export class SessionDO extends DurableObject<Env> {
       // Built-in (anthropic) skills from the in-memory registry
       const builtinSkills = resolveSkills(agent.skills);
       for (const s of builtinSkills) {
-        if (s.system_prompt_addition) {
+        if (assemblySkillMount) {
+          skillMounts.push({
+            skillId: s.id,
+            name: s.name,
+            description: s.name,
+            mountRoot: `/home/user/.skills/${s.name}/`,
+            body: s.system_prompt_addition,
+            source: "builtin",
+          });
+        } else if (s.system_prompt_addition) {
           platformReminders.push({ source: `skill:${s.id}`, text: s.system_prompt_addition });
         }
       }
 
-      // Custom skills from KV — lightweight metadata
+      // Custom skills from KV
       if (this.env.CONFIG_KV) {
         try {
-          const customSkills = await resolveCustomSkills(agent.skills, this.env.CONFIG_KV, this.env.FILES_BUCKET, this.state.tenant_id);
-          for (const s of customSkills) {
-            if (s.system_prompt_addition) {
-              platformReminders.push({ source: `skill:${s.id}`, text: s.system_prompt_addition });
+          if (assemblySkillMount) {
+            const customMounts = await resolveCustomSkillMounts(
+              agent.skills,
+              this.env.CONFIG_KV,
+              this.env.FILES_BUCKET,
+              this.state.tenant_id,
+              { fetchBodies: fetchSkillBodies },
+            );
+            skillMounts.push(...customMounts);
+          } else {
+            const customSkills = await resolveCustomSkills(
+              agent.skills,
+              this.env.CONFIG_KV,
+              this.env.FILES_BUCKET,
+              this.state.tenant_id,
+            );
+            for (const s of customSkills) {
+              if (s.system_prompt_addition) {
+                platformReminders.push({ source: `skill:${s.id}`, text: s.system_prompt_addition });
+              }
             }
           }
         } catch (err) {
@@ -5218,6 +5256,7 @@ export class SessionDO extends DurableObject<Env> {
       systemPrompt,
       rawSystemPrompt,
       platformReminders,
+      ...(skillMounts.length > 0 ? { skillMounts } : {}),
       // file_id → bytes resolver for ImageBlock/DocumentBlock content blocks
       // whose `source.type === "file"`. Default-loop's eventsToMessagesAsync
       // dedupes via a per-derive Promise cache, so the same file referenced

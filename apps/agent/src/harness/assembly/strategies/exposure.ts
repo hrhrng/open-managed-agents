@@ -19,6 +19,8 @@ export interface ToolExposureStrategy {
     loadedToolNames: ReadonlySet<string>;
     config: ToolAssemblyConfig;
     model: Model<Api>;
+    /** Enable `tool_search` even when no MCP tools are deferred (e.g. budgeted skills). */
+    forceToolSearch?: boolean;
   }): ToolExposurePlan;
 }
 
@@ -30,19 +32,21 @@ function isResidentTool(name: string, alwaysLoad: ReadonlySet<string>): boolean 
 
 export function createToolExposureStrategy(): ToolExposureStrategy {
   return {
-    plan({ allTools, loadedToolNames, config, model }) {
+    plan({ allTools, loadedToolNames, config, model, forceToolSearch = false }) {
       const byName = new Map(allTools.map((tool) => [tool.name, tool]));
       const mcpTools = allTools.filter((tool) => isMcpToolName(tool.name));
       const deferredCandidates = mcpTools.filter(
         (tool) => !isResidentTool(tool.name, config.alwaysLoad),
       );
 
-      let toolSearchEnabled = false;
-      if (config.mode === "on") {
-        toolSearchEnabled = deferredCandidates.length > 0;
-      } else if (config.mode === "auto" && deferredCandidates.length > 0) {
-        const budgetTokens = Math.floor(model.contextWindow * config.autoThresholdFraction);
-        toolSearchEnabled = estimateToolDefinitionsTokens(deferredCandidates) > budgetTokens;
+      let toolSearchEnabled = forceToolSearch;
+      if (!toolSearchEnabled) {
+        if (config.mode === "on") {
+          toolSearchEnabled = deferredCandidates.length > 0;
+        } else if (config.mode === "auto" && deferredCandidates.length > 0) {
+          const budgetTokens = Math.floor(model.contextWindow * config.autoThresholdFraction);
+          toolSearchEnabled = estimateToolDefinitionsTokens(deferredCandidates) > budgetTokens;
+        }
       }
 
       if (!toolSearchEnabled) {

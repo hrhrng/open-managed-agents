@@ -266,6 +266,19 @@ export interface HarnessContext {
   platformReminders?: Array<{ source: string; text: string }>;
 
   /**
+   * Resolved skill mounts for assembly-layer exposure (Pi / default harness).
+   * When set, SKILL.md bodies are not inlined into `systemPrompt` by default.
+   */
+  skillMounts?: Array<{
+    skillId: string;
+    name: string;
+    description: string;
+    mountRoot: string;
+    body?: string;
+    source?: "builtin" | "custom";
+  }>;
+
+  /**
    * Resolve a `file_id` (Anthropic Managed Agents ImageBlock/DocumentBlock
    * `source.type === "file"`) into inline bytes + media type + filename for
    * the next derive cycle. SessionDO populates this with a

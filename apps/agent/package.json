@@ -19,6 +19,8 @@
     "./harness/acp-sandbox": "./src/harness/acp-sandbox-loop.ts",
     "./harness/acp-agent-state": "./src/harness/acp-agent-state.ts",
     "./harness/platform-guidance": "./src/harness/platform-guidance.ts",
+    "./harness/assembly/skill-config": "./src/harness/assembly/skill-config.ts",
+    "./harness/skills": "./src/harness/skills.ts",
     "./runtime/history": "./src/runtime/history.ts",
     "./runtime/appendable-prompts": "./src/runtime/appendable-prompts.ts",
     "./runtime/managed-runtime": "./src/runtime/managed-runtime.ts"

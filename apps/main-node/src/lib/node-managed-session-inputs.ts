@@ -12,12 +12,56 @@ import type {
 import type { SessionResourceSecretSource } from "@open-managed-agents/session-resource-store";
 import type { NodeManagedMemorySnapshotPort } from "./node-managed-memory-snapshots.js";
 import { resolveAppendablePrompts } from "@open-managed-agents/agent/runtime/appendable-prompts";
+import type { SkillMountDescriptor } from "@open-managed-agents/agent/harness/skills";
+import {
+  resolveSkillAssemblyConfig,
+  skillMountsShouldFetchBodies,
+} from "@open-managed-agents/agent/harness/assembly/skill-config";
+import { toLegacyHarnessAgentConfig } from "./node-managed-agent-codec.js";
 
 type FileSource = Pick<FilesApplicationPort, "downloadFile">;
 type SkillVersionSource = Pick<
   SkillVersionsApplicationPort,
-  "downloadSkillVersion" | "listSkillVersions"
+  "downloadSkillVersion" | "listSkillVersions" | "retrieveSkillVersion"
 >;
+
+function skillMdBodyFromArchive(archive: Uint8Array): string | undefined {
+  const files = unzipSync(archive);
+  for (const [rawPath, content] of Object.entries(files)) {
+    if (rawPath.endsWith("/")) continue;
+    const path = safeArchivePath(rawPath);
+    if (posix.basename(path) !== "SKILL.md") continue;
+    return new TextDecoder().decode(content);
+  }
+  return undefined;
+}
+
+async function resolveConcreteSkillVersion(
+  skillVersions: SkillVersionSource,
+  skillId: string,
+  requestedVersion: string,
+): Promise<{ version: string; name: string; description: string } | undefined> {
+  if (requestedVersion === "latest") {
+    const listed = await skillVersions.listSkillVersions({ skillId, pageSize: 1 });
+    if (listed.type !== "page" || listed.page.versions.length === 0) return undefined;
+    const view = listed.page.versions[0]!;
+    return {
+      version: view.version,
+      name: view.name,
+      description: view.description,
+    };
+  }
+  const retrieved = await skillVersions.retrieveSkillVersion({
+    skillId,
+    version: requestedVersion,
+  });
+  if (retrieved.type !== "found") return undefined;
+  return {
+    version: retrieved.version.version,
+    name: retrieved.version.name,
+    description: retrieved.version.description,
+  };
+}
 
 export interface PrepareNodeManagedSessionInputs {
   workspaceId: string;
@@ -49,6 +93,68 @@ export function buildNodeManagedSkillReminders(
       text: `Custom skill ${skill.skillId} is mounted at ${mountRoot}. Locate and read its SKILL.md before applying it.`,
     }];
   });
+}
+
+/** @deprecated Prefer {@link resolveNodeManagedSkillMounts} for assembly harnesses. */
+export function buildNodeManagedSkillMounts(
+  session: Session,
+): SkillMountDescriptor[] {
+  return session.agent.skills.flatMap((skill) => {
+    if (skill.type !== "custom") return [];
+    const requestedVersion = skill.version ?? "latest";
+    const mountRoot = `/workspace/.openma/skills/${encodeURIComponent(skill.skillId)}/${encodeURIComponent(requestedVersion)}/`;
+    return [{
+      skillId: skill.skillId,
+      name: skill.skillId,
+      description: `Custom skill mounted at ${mountRoot}`,
+      mountRoot,
+      source: "custom",
+    }];
+  });
+}
+
+export async function resolveNodeManagedSkillMounts(
+  session: Session,
+  skillVersions: SkillVersionSource,
+): Promise<SkillMountDescriptor[]> {
+  const agent = toLegacyHarnessAgentConfig(session);
+  const skillConfig = resolveSkillAssemblyConfig(agent);
+  const fetchBodies = skillMountsShouldFetchBodies(skillConfig.mode);
+  const mounts: SkillMountDescriptor[] = [];
+
+  for (const skill of session.agent.skills) {
+    if (skill.type !== "custom") continue;
+    const requestedVersion = skill.version ?? "latest";
+    const mountRoot = `/workspace/.openma/skills/${encodeURIComponent(skill.skillId)}/${encodeURIComponent(requestedVersion)}/`;
+    const resolved = await resolveConcreteSkillVersion(
+      skillVersions,
+      skill.skillId,
+      requestedVersion,
+    );
+    if (!resolved) continue;
+
+    let body: string | undefined;
+    if (fetchBodies) {
+      const downloaded = await skillVersions.downloadSkillVersion({
+        skillId: skill.skillId,
+        version: resolved.version,
+      });
+      if (downloaded.type === "found") {
+        body = skillMdBodyFromArchive(downloaded.file.content);
+      }
+    }
+
+    mounts.push({
+      skillId: skill.skillId,
+      name: resolved.name,
+      description: resolved.description || `Custom skill mounted at ${mountRoot}`,
+      mountRoot,
+      ...(body?.trim() ? { body } : {}),
+      source: "custom",
+    });
+  }
+
+  return mounts;
 }
 
 export function buildNodeManagedAppendablePromptReminders(

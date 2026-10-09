@@ -100,6 +100,7 @@ export default defineConfig({
             { label: 'Deploy on Fly.io', slug: 'self-host/fly' },
             { label: 'Managed Runtime Host', slug: 'self-host/managed-runtime-host' },
             { label: 'Sandbox & persistence', slug: 'self-host/sandbox-persistence' },
+            { label: 'Execution backend contract', slug: 'self-host/sandbox-backend' },
             { label: 'Deploy on Cloudflare', slug: 'self-host/deploy' },
             { label: 'OAuth Apps', slug: 'self-host/oauth-apps' },
             { label: 'Operations', slug: 'self-host/operations' },

@@ -1,5 +1,11 @@
 # @openma/cli
 
+## 0.6.5
+
+### Patch Changes
+
+- 57906b3: Pi harness skill mounting strategies (`skill_mount`: `progressive` default, `budgeted`, `tool`, `inline`) replace default full SKILL.md system-prompt inlining for default/Pi harnesses. Deferred skills in `budgeted` mode are discoverable via `tool_search`; `tool` mode adds a `skill` loader tool.
+
 ## 0.6.4
 
 ### Patch Changes

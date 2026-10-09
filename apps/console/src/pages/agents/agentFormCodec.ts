@@ -204,6 +204,13 @@ const RESPONSE_ONLY_KEYS = new Set([
   "archived_at",
 ]);
 
+/** Advanced harness ids (`_oma.harness`). Pi is the platform default; `ai-sdk` is deprecated. */
+export const AGENT_HARNESS_HINT = {
+  default: "Pi agent-core (omit harness)",
+  pi: "Pi agent-core (explicit)",
+  "ai-sdk": "Legacy AI SDK loop (deprecated — prefer default Pi)",
+} as const;
+
 const OMA_ONLY_KEYS = new Set([
   "runtime_binding",
   "harness",

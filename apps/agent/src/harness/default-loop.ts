@@ -9,6 +9,7 @@ import { SummarizeCompactionStrategy, resolveCompactionStrategy } from "./compac
 import type { CompactionStrategy } from "./compaction";
 import { ALL_TOOLS } from "./tools";
 import { llmLoggingMiddleware, llmLogKey } from "./llm-logging-middleware";
+import { warnAiSdkHarnessDeprecatedOnce } from "./ai-sdk-deprecation";
 
 // Single source of truth lives in ./tools.ts (ALL_TOOLS). Importing here so
 // adding a new toolset entry can't drift the event-classification list — the
@@ -254,6 +255,12 @@ function normalizeToolOutputForWire(raw: unknown): string | ContentBlock[] {
   return JSON.stringify(raw);
 }
 
+/**
+ * Legacy agent loop built on the Vercel AI SDK (`generateText` + tool loop).
+ *
+ * @deprecated Use the default Pi harness (`harness` unset, `default`, or `pi`).
+ * Register explicitly via `harness: "ai-sdk"` only for backward compatibility.
+ */
 export class DefaultHarness implements HarnessInterface {
   /**
    * Compaction strategy resolved from agent config. Cached on the harness
@@ -264,6 +271,7 @@ export class DefaultHarness implements HarnessInterface {
 
   async run(ctx: HarnessContext): Promise<void> {
     const { agent, userMessage, runtime, tools, model, systemPrompt } = ctx;
+    warnAiSdkHarnessDeprecatedOnce(ctx.session_id, (event) => { runtime.broadcast(event); });
     const providerOptions =
       typeof agent.model === "object"
         ? agent.model.provider_options as SharedV3ProviderOptions | undefined

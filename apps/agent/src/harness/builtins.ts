@@ -11,6 +11,7 @@ import { registerHarness } from "./registry";
 export function registerCoreHarnesses(): void {
   registerHarness("default", () => new PiHarness());
   registerHarness("pi", () => new PiHarness());
+  /** @deprecated Legacy AI SDK loop — prefer default Pi harness. */
   registerHarness("ai-sdk", () => new DefaultHarness());
   registerHarness("acp-sandbox", () => new AcpSandboxHarness());
 }

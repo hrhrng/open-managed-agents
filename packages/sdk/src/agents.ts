@@ -92,6 +92,9 @@ export interface OpenMaAgentRuntimeBindingParams {
 export interface OpenMaAgentExtensionParams {
   aux_model?: OpenMaAgentModelParams | null;
   appendable_prompts?: string[] | null;
+  /**
+   * @deprecated Prefer omitting `harness` (Pi agent-core default). Use `"ai-sdk"` only for the legacy AI SDK loop.
+   */
   harness?: string | null;
   acp?: OpenMaAgentAcpParams | null;
   runtime_binding?: OpenMaAgentRuntimeBindingParams | null;
@@ -119,6 +122,7 @@ export interface OpenMaAgentAcp {
 export interface OpenMaAgentExtension {
   aux_model?: BetaManagedAgentsModelConfig;
   appendable_prompts?: string[];
+  /** @deprecated Legacy harness id; unset uses Pi. `"ai-sdk"` selects the deprecated AI SDK loop. */
   harness?: string;
   acp?: OpenMaAgentAcp;
   runtime_binding?: OpenMaAgentRuntimeBindingParams;

@@ -1,5 +1,11 @@
 # @openma/cli
 
+## 0.6.3
+
+### Patch Changes
+
+- 7d3bbf5: Emit `bundle_dir` and `fresh` on `session.ready` after a fresh ACP spawn so the cloud harness can locate the platform bundle without guessing scratch paths.
+
 ## 0.6.2
 
 ### Patch Changes

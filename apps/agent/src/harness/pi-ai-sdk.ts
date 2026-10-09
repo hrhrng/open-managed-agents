@@ -52,9 +52,10 @@ async function generateWithPi(
   options: LanguageModelV3CallOptions,
 ): Promise<LanguageModelV3GenerateResult> {
   const warnings = collectWarnings(options);
+  const piContext = toPiContext(options, runtime.model);
   const message = await runtime.models.completeSimple(
     runtime.model,
-    toPiContext(options, runtime.model),
+    piContext,
     toPiStreamOptions(runtime, options),
   );
   if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -276,6 +277,7 @@ function toPiStreamOptions(
     ...(options.stopSequences ? { stop: options.stopSequences } : {}),
     ...(options.seed !== undefined ? { seed: options.seed } : {}),
   };
+  const piContext = toPiContext(options, runtime.model);
   return withPiRuntimeRequestOptions(runtime, {
     ...piOptions,
     ...(piOptions.reasoning === undefined
@@ -288,7 +290,7 @@ function toPiStreamOptions(
     ...(options.maxOutputTokens !== undefined ? { maxTokens: options.maxOutputTokens } : {}),
     ...(Object.keys(samplingParams).length > 0 ? { samplingParams } : {}),
     toolChoice: options.toolChoice?.type === "none" ? "none" : "auto",
-  });
+  }, piContext);
 }
 
 function toAiSdkStreamParts(event: AssistantMessageEvent): LanguageModelV3StreamPart[] {

@@ -13,6 +13,10 @@ import {
   isContextOverflow,
   isRecoverableLength,
 } from "@earendil-works/pi-ai";
+import {
+  estimateContextTokens,
+  estimateTextTokens,
+} from "@earendil-works/pi-ai/utils/estimate";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
@@ -79,6 +83,7 @@ export class PiHarness implements HarnessInterface {
       throw new ModelError("Pi harness requires a tenant-scoped Pi model runtime");
     }
 
+    await this.compactIfInsufficientOutputRoom(ctx);
     const proactivelyCompacted = await this.compactBeforeTurn(ctx);
     let outcome = await this.runAgentOnce(ctx);
     if (
@@ -136,7 +141,7 @@ export class PiHarness implements HarnessInterface {
         ctx.pi!.models.streamSimple(
           model,
           context,
-          withPiRuntimeRequestOptions(ctx.pi!, options),
+          withPiRuntimeRequestOptions(ctx.pi!, options, context),
         ),
       toolExecution: "parallel",
     });
@@ -161,6 +166,25 @@ export class PiHarness implements HarnessInterface {
     }
 
     return { producedOutput, ...(providerFailure ? { providerFailure } : {}) };
+  }
+
+  private async compactIfInsufficientOutputRoom(ctx: HarnessContext): Promise<void> {
+    if (!ctx.pi || ctx.pi.model.contextWindow <= 0) return;
+    const events = ctx.runtime.history.getEvents();
+    const modelMessages = await eventsToMessagesAsync(events, ctx.fileFetcher);
+    const messages = modelMessagesToPi(modelMessages, ctx.pi.model);
+    const piTools = toolsToPi(ctx);
+    const { tokens: messageTokens } = estimateContextTokens(messages);
+    const systemTokens = ctx.systemPrompt.length > 0
+      ? estimateTextTokens(ctx.systemPrompt)
+      : 0;
+    const toolTokens = piTools.length > 0
+      ? estimateTextTokens(JSON.stringify(piTools))
+      : 0;
+    const remaining = ctx.pi.model.contextWindow - messageTokens - systemTokens - toolTokens;
+    if (remaining < PI_CONTEXT_OUTPUT_RESERVE_TOKENS) {
+      await this.compactBeforeTurn(ctx, true);
+    }
   }
 
   private async compactBeforeTurn(ctx: HarnessContext, force: boolean = false): Promise<boolean> {
@@ -199,6 +223,10 @@ export class PiHarness implements HarnessInterface {
           ...(ctx.pi.thinkingLevel !== undefined && ctx.pi.thinkingLevel !== "off"
             ? { reasoning: ctx.pi.thinkingLevel }
             : {}),
+        }, {
+          systemPrompt: compactionCtx.systemPrompt,
+          messages: compactionCtx.messages,
+          tools: compactionCtx.tools,
         }),
       });
       return this.persistCompaction(result, ctx);

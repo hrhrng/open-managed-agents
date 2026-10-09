@@ -415,14 +415,13 @@ describe("AgentsApplicationService", () => {
       agent: { openma: { contextManagement: expect.anything() } },
     });
 
-    expect(
-      await service.createAgent({
-        name: "Bad max tokens",
-        model: { id: "deepseek-v4-flash", maxTokens: 1_000_000 },
-      }),
-    ).toMatchObject({
-      type: "invalid_request",
-      message: expect.stringMatching(/max_tokens.*context window/i),
+    const oversizedMaxTokens = await service.createAgent({
+      name: "Large max tokens accepted",
+      model: { id: "deepseek-v4-flash", maxTokens: 1_000_000 },
+    });
+    expect(oversizedMaxTokens).toMatchObject({
+      type: "created",
+      agent: { model: { maxTokens: 1_000_000 } },
     });
 
     expect(

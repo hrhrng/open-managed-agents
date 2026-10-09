@@ -8,9 +8,11 @@ import {
   type ProviderHeaders,
   type ProviderStreams,
   type ModelThinkingLevel,
+  type Context,
   type SimpleStreamOptions,
+  type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { ConfigError } from "@open-managed-agents/shared";
+import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -149,11 +151,6 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
     baseUrl,
     ...(input.modelMaxTokens !== undefined && { maxTokens: input.modelMaxTokens }),
   };
-  if (model.maxTokens >= model.contextWindow) {
-    throw new ConfigError(
-      `max_tokens (${model.maxTokens}) must be less than context window (${model.contextWindow})`,
-    );
-  }
   const providerStreams = resolveProviderStreams(plan, model, catalogModel);
 
   const provider = createProvider({
@@ -208,6 +205,7 @@ export function resolvePiAgentModelContextWindow(
 export function withPiRuntimeRequestOptions(
   runtime: PiModelRuntime,
   options: SimpleStreamOptions = {},
+  requestContext?: Context,
 ): SimpleStreamOptions {
   const providerOptions = runtime.providerOptions ?? {};
   const merged: SimpleStreamOptions = {
@@ -226,6 +224,17 @@ export function withPiRuntimeRequestOptions(
   };
   if (merged.maxTokens === undefined) {
     merged.maxTokens = runtime.model.maxTokens;
+  }
+  if (
+    requestContext !== undefined
+    && runtime.model.contextWindow > 0
+    && merged.maxTokens !== undefined
+  ) {
+    merged.maxTokens = clampMaxTokensToContext(
+      runtime.model,
+      requestContext as TranscriptContext,
+      merged.maxTokens,
+    );
   }
   const baseFetch = merged.fetch ?? observablePiFetch;
   if (runtime.speed !== "fast") return { ...merged, fetch: baseFetch };

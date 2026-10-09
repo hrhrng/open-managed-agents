@@ -72,6 +72,28 @@ describe("createPiModelRuntime", () => {
     expect(runtime.model.contextWindow).toBeGreaterThan(0);
   });
 
+  it("clamps maxTokens to remaining context when request context is provided", () => {
+    const runtime = createPiModelRuntime({
+      model: "custom-clamp-test",
+      apiKey: "secret",
+      provider: "oai-compatible",
+      baseURL: "https://models.example.test/v1",
+      modelMaxTokens: 50_000,
+      piConfig: {
+        api: "openai-completions",
+        contextWindow: 8_192,
+        maxTokens: 50_000,
+      },
+    });
+    const clamped = withPiRuntimeRequestOptions(runtime, { maxTokens: 50_000 }, {
+      systemPrompt: "",
+      messages: [{ role: "user", content: "hello", timestamp: 1 }],
+      tools: [],
+    });
+    expect(clamped.maxTokens).toBeLessThan(50_000);
+    expect(clamped.maxTokens).toBeGreaterThan(0);
+  });
+
   it("omits Pi reasoning when agent effort is unset so provider defaults apply", () => {
     const runtime = createPiModelRuntime({
       model: "deepseek-v4-flash",

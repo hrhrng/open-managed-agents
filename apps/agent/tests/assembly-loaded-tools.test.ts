@@ -35,6 +35,25 @@ describe("restoreLoadedToolNames", () => {
     expect([...restoreLoadedToolNames(events)]).toEqual(["mcp__github__create_issue"]);
   });
 
+  it("restores from custom_tool_use and ContentBlock[] tool_result (Pi harness)", () => {
+    const events: SessionEvent[] = [
+      {
+        type: "agent.custom_tool_use",
+        id: "tu-pi-1",
+        name: "tool_search",
+        input: { query: "issue" },
+      },
+      {
+        type: "agent.tool_result",
+        tool_use_id: "tu-pi-1",
+        content: [
+          { type: "text", text: "Loaded 1 tool(s) for the next turn:\n\n## mcp__github__create_issue\nOpen issue" },
+        ],
+      },
+    ];
+    expect([...restoreLoadedToolNames(events)]).toEqual(["mcp__github__create_issue"]);
+  });
+
   it("unions warning and history", () => {
     const events: SessionEvent[] = [
       {

@@ -40,6 +40,17 @@ describe("BM25 tokenizer", () => {
     expect(index.search("issue", 4)).toEqual(["mcp__github__create_issue"]);
   });
 
+  it("splits camelCase before lowercasing", () => {
+    expect(tokenizeForSearch("createIssue")).toEqual(expect.arrayContaining(["create", "issue"]));
+    expect(tokenizeForSearch("mcp__github__createIssue")).toEqual(
+      expect.arrayContaining(["mcp", "github", "create", "issue"]),
+    );
+    const index = createBm25Index([
+      { id: "mcp__github__createIssue", text: "mcp__github__createIssue Open a GitHub issue" },
+    ]);
+    expect(index.search("issue", 4)).toEqual(["mcp__github__createIssue"]);
+  });
+
   it("indexes CJK with bigrams", () => {
     const index = createBm25Index([{ id: "doc", text: "文档说明" }]);
     expect(index.search("文档", 2)).toEqual(["doc"]);

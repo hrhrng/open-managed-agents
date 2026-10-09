@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@open-managed-agents/shared";
+import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
 import { mcpServerNameFromToolName } from "./catalog";
 
 export const TOOL_ASSEMBLY_WARNING_SOURCE = "oma.tool_assembly";
@@ -16,10 +16,21 @@ export function broadcastLoadedToolNames(
   });
 }
 
-function namesFromToolSearchResultContent(content: string | unknown): string[] {
-  if (typeof content !== "string") return [];
+function textFromToolSearchResultContent(content: string | ContentBlock[] | unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (block && typeof block === "object" && block.type === "text" && typeof block.text === "string"
+      ? block.text
+      : ""))
+    .join("\n");
+}
+
+function namesFromToolSearchResultContent(content: string | ContentBlock[] | unknown): string[] {
+  const text = textFromToolSearchResultContent(content);
+  if (!text) return [];
   const names: string[] = [];
-  for (const line of content.split("\n")) {
+  for (const line of text.split("\n")) {
     const match = /^##\s+(\S+)/.exec(line.trim());
     if (match?.[1]) names.push(match[1]);
   }
@@ -44,7 +55,11 @@ export function restoreLoadedToolNames(events: readonly SessionEvent[]): Set<str
       continue;
     }
 
-    if (event.type === "agent.tool_use" && event.name === "tool_search" && event.id) {
+    if (
+      (event.type === "agent.tool_use" || event.type === "agent.custom_tool_use")
+      && event.name === "tool_search"
+      && event.id
+    ) {
       pendingSearch.set(event.id, event.id);
       continue;
     }

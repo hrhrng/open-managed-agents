@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createModels,
   fauxAssistantMessage,
@@ -451,6 +451,10 @@ describe("PiHarness", () => {
   describe("tool_search assembly", () => {
     const MCP_TOOL = "mcp__github__create_issue";
 
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
     function makeToolSearchContext(
       responses: ReturnType<typeof fauxAssistantMessage>[],
       toolSearchMode: "on" | "off" | "auto",
@@ -493,7 +497,6 @@ describe("PiHarness", () => {
       expect(assemblyProbe).toHaveBeenCalled();
       expect(assemblyProbe.mock.calls[0]?.[0]).toContain(MCP_TOOL);
       expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain("tool_search");
-      vi.restoreAllMocks();
     });
 
     it("defers MCP tools and exposes tool_search when mode is on", async () => {
@@ -511,7 +514,6 @@ describe("PiHarness", () => {
       expect(faux.state.callCount).toBe(1);
       expect(assemblyProbe.mock.calls[0]?.[0]).toContain("tool_search");
       expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain(MCP_TOOL);
-      vi.restoreAllMocks();
     });
 
     it("loads deferred tools for the next model turn after tool_search", async () => {
@@ -533,6 +535,45 @@ describe("PiHarness", () => {
         source: TOOL_ASSEMBLY_WARNING_SOURCE,
         details: { loadedToolNames: [MCP_TOOL] },
       }));
+    });
+
+    it("keeps MCP tools visible in auto mode when defs are below the threshold", async () => {
+      const { ctx, faux } = makeToolSearchContext([fauxAssistantMessage("ok")], "auto");
+      const assemblyProbe = vi.fn();
+      const piAdapter = await import("../src/harness/assembly/adapters/pi");
+      const createAssembly = piAdapter.createPiToolAssembly;
+      vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+        const assembly = createAssembly(harnessCtx);
+        assemblyProbe(assembly.initialTools.map((tool) => tool.name));
+        return assembly;
+      });
+
+      await new PiHarness().run(ctx);
+      expect(faux.state.callCount).toBe(1);
+      expect(assemblyProbe.mock.calls[0]?.[0]).toContain(MCP_TOOL);
+      expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain("tool_search");
+    });
+
+    it("defers MCP tools in auto mode when defs exceed the threshold", async () => {
+      const { ctx, faux } = makeToolSearchContext(
+        [fauxAssistantMessage("ok")],
+        "auto",
+        "x".repeat(8_000),
+      );
+      ctx.pi!.model = { ...ctx.pi!.model, contextWindow: 10_000 };
+      const assemblyProbe = vi.fn();
+      const piAdapter = await import("../src/harness/assembly/adapters/pi");
+      const createAssembly = piAdapter.createPiToolAssembly;
+      vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+        const assembly = createAssembly(harnessCtx);
+        assemblyProbe(assembly.initialTools.map((tool) => tool.name));
+        return assembly;
+      });
+
+      await new PiHarness().run(ctx);
+      expect(faux.state.callCount).toBe(1);
+      expect(assemblyProbe.mock.calls[0]?.[0]).toContain("tool_search");
+      expect(assemblyProbe.mock.calls[0]?.[0]).not.toContain(MCP_TOOL);
     });
 
     it("resumes loaded tools from prior session events on a new harness run", async () => {
@@ -564,7 +605,6 @@ describe("PiHarness", () => {
 
       await new PiHarness().run(ctx);
       expect(assemblyProbe.mock.calls[0]?.[0]).toContain(MCP_TOOL);
-      vi.restoreAllMocks();
     });
   });
 

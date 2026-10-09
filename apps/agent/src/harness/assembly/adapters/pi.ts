@@ -49,7 +49,6 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const loaded = restoreLoadedToolNames(ctx.runtime.history.getEvents());
   const baseSystemPrompt = ctx.systemPrompt;
   const model = ctx.pi!.model;
-  let lastDeferredHintKey = "";
 
   const toolSearchPiTool: AgentTool = {
     name: TOOL_SEARCH_NAME,
@@ -95,6 +94,9 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   }
 
   const initialPlan = planTools();
+  let lastDeferredHintKey = initialPlan.toolSearchEnabled && initialPlan.deferredNames.length > 0
+    ? initialPlan.deferredNames.slice().sort().join("\0")
+    : "";
 
   return {
     initialTools: initialPlan.exposed,

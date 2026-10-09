@@ -18,6 +18,11 @@ import type { SqlEventLog } from "@open-managed-agents/event-log/sql";
 import { eventsToMessages } from "@open-managed-agents/agent/runtime/history";
 import { getLogger } from "@open-managed-agents/observability";
 import type { EventStreamHub } from "./event-stream-hub";
+import {
+  type NodeHarnessUsageLedger,
+  creditCacheTokensFromSpanEnd,
+  creditHarnessUsage,
+} from "./node-harness-usage";
 
 const log = getLogger("node-harness");
 
@@ -62,6 +67,9 @@ export interface NodeHarnessRuntimeOptions {
    *  LocalSubprocessSandbox for local dev, E2BSandbox / CloudflareSandbox
    *  in production. */
   sandbox: SandboxExecutor;
+  /** Per-session accumulator updated by reportUsage + span.model_request_end
+   *  cache fields. Owned by SessionRegistry for the session lifetime. */
+  usageLedger?: NodeHarnessUsageLedger;
 }
 
 export class NodeHarnessRuntime implements HarnessRuntime {
@@ -103,7 +111,24 @@ export class NodeHarnessRuntime implements HarnessRuntime {
    * don't collide on the per-session seq counter (see writeChain
    * comment above).
    */
+  reportUsage = async (
+    input_tokens: number,
+    output_tokens: number,
+  ): Promise<void> => {
+    if (this.opts.usageLedger === undefined) return;
+    creditHarnessUsage(this.opts.usageLedger, {
+      input_tokens,
+      output_tokens,
+    });
+  };
+
   broadcast = (event: SessionEvent): void => {
+    if (this.opts.usageLedger !== undefined) {
+      creditCacheTokensFromSpanEnd(
+        this.opts.usageLedger,
+        event as { type?: string; model_usage?: Record<string, number | undefined> },
+      );
+    }
     this.history.appendInPlace(event);
     this.writeChain = this.writeChain
       .then(() => this.opts.log.appendAsync(event))

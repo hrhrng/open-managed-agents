@@ -96,6 +96,34 @@ describe("ManagedNodeHarnessRuntime", () => {
     expect(runtime.history.getEvents()).toHaveLength(3);
   });
 
+  it("reportUsage emits session.usage for managed projection", async () => {
+    const { ManagedNodeHarnessRuntime } = await import(
+      "../src/lib/node-managed-harness-runtime.ts"
+    ) as { ManagedNodeHarnessRuntime: ManagedHarnessRuntimeConstructor };
+    const output: unknown[] = [];
+    const runtime = new ManagedNodeHarnessRuntime({
+      initialEvents: [],
+      events: [],
+      sandbox: {} as SandboxExecutor,
+      output: async (frame) => { output.push(frame); },
+      clock: { now: () => new Date("2026-10-09T00:00:00.000Z") },
+      ids: { nextEventId: () => "event_usage_01" },
+    });
+    await runtime.reportUsage(120, 15);
+    await runtime.drain();
+    expect(output).toEqual([
+      expect.objectContaining({
+        id: "event_usage_01",
+        type: "session.usage",
+        usage: {
+          input_tokens: 120,
+          output_tokens: 15,
+        },
+        processed_at: "2026-10-09T00:00:00.000Z",
+      }),
+    ]);
+  });
+
   it.each([
     {
       type: "user.custom_tool_result" as const,

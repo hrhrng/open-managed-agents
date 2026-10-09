@@ -441,6 +441,7 @@ export async function createNodeFoundation(
         log: input.eventLog,
         hub,
         sandbox: input.sandbox,
+        usageLedger: input.usageLedger,
       });
       await runtime.refreshHistory();
       const rawSystemPrompt = input.agent.system ?? "";

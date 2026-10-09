@@ -9,8 +9,8 @@ import { registerHarness } from "./registry";
  * by that platform's composition root.
  */
 export function registerCoreHarnesses(): void {
-  registerHarness("default", () => new DefaultHarness());
-  registerHarness("ai-sdk", () => new DefaultHarness());
+  registerHarness("default", () => new PiHarness());
   registerHarness("pi", () => new PiHarness());
+  registerHarness("ai-sdk", () => new DefaultHarness());
   registerHarness("acp-sandbox", () => new AcpSandboxHarness());
 }

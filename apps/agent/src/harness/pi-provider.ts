@@ -9,7 +9,6 @@ import {
   type ProviderStreams,
   type ModelThinkingLevel,
   type SimpleStreamOptions,
-  clampThinkingLevel,
 } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -159,7 +158,8 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
     models,
     model,
     providerOptions: structuredClone(input.providerOptions ?? {}) as SimpleStreamOptions,
-    thinkingLevel: clampThinkingLevel(model, input.thinkingLevel ?? "off"),
+    // Preserve the agent-configured level; Pi clamps at request time per model support.
+    thinkingLevel: input.thinkingLevel ?? "off",
     speed: input.speed ?? "standard",
   };
 }

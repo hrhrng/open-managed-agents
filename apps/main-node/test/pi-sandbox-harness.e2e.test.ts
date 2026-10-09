@@ -234,9 +234,9 @@ describe(
             text: "The user requires durable Pi compaction across managed turns.",
           }],
         });
-        expect(requests[0]).toMatchObject({
-          tools: [],
-          systemPrompt: "You are a helpful AI assistant tasked with summarizing conversations.",
+        expect(requests[0]?.messages[0]).toMatchObject({
+          role: "system",
+          content: "You are a helpful AI assistant tasked with summarizing conversations.",
         });
         expect(JSON.stringify(requests[1]?.messages)).toContain("<conversation-summary>");
 

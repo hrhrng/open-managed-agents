@@ -14,6 +14,7 @@ import type {
   AssistantMessageEvent,
   Context,
   ImageContent,
+  JsonObject,
   Message,
   Model,
   SimpleStreamOptions,
@@ -167,7 +168,7 @@ function toPiContext(
             type: "toolCall",
             id: part.toolCallId,
             name: part.toolName,
-            arguments: asRecord(part.input),
+            arguments: asJsonObject(part.input),
           });
         }
       }
@@ -481,9 +482,9 @@ function emptyPiUsage(): Usage {
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+function asJsonObject(value: unknown): JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as JsonObject)
     : {};
 }
 

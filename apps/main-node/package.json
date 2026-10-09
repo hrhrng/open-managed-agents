@@ -129,7 +129,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.120.0",
-    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-ai": "1.1.0",
     "@open-managed-agents/acp-runtime": "workspace:*",
     "@open-managed-agents/agent-store-memory": "workspace:*",
     "@testcontainers/mysql": "^12.1.0",

@@ -9,6 +9,7 @@ import {
   type TextContent,
   type ToolResultMessage,
   type Usage,
+  type JsonObject,
   isContextOverflow,
 } from "@earendil-works/pi-ai";
 import type { ModelMessage } from "ai";
@@ -569,7 +570,7 @@ function modelMessagesToPi(
               type: "toolCall",
               id: part.toolCallId,
               name: part.toolName,
-              arguments: (part.input ?? {}) as Record<string, unknown>,
+              arguments: (part.input ?? {}) as JsonObject,
             });
           }
         }

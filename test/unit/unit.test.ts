@@ -21,13 +21,10 @@ describe("Harness registry", () => {
   });
 
   it("default harness is registered", async () => {
-    // Worker entry (apps/agent/src/index.ts) registers "default" at import
-    // time; this unit test doesn't import the entry, so register the same
-    // way the worker would.
-    const { DefaultHarness } = await import("../../apps/agent/src/harness/default-loop");
-    registerHarness("default", () => new DefaultHarness());
-    const h = resolveHarness("default");
-    expect(h).toBeTruthy();
+    const { registerCoreHarnesses } = await import("../../apps/agent/src/harness/builtins");
+    const { PiHarness } = await import("../../apps/agent/src/harness/pi-loop");
+    registerCoreHarnesses();
+    expect(resolveHarness("default")).toBeInstanceOf(PiHarness);
   });
 
   it("each call returns a new instance", () => {

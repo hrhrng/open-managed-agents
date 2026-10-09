@@ -7,9 +7,9 @@
 import mainApp, { McpProxyRpc as MainMcpProxyRpc } from "../apps/main/src/index";
 
 // --- Agent worker DO + harness registration ---
+import { registerCoreHarnesses } from "../apps/agent/src/harness/builtins";
 import { registerHarness } from "../apps/agent/src/harness/registry";
-import { DefaultHarness } from "../apps/agent/src/harness/default-loop";
-registerHarness("default", () => new DefaultHarness());
+registerCoreHarnesses();
 registerHarness("multi-msg", () => ({
   async run(ctx) {
     ctx.runtime.broadcast({ type: "agent.message", content: [{ type: "text", text: "msg1" }] });

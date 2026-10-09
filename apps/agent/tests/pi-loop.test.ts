@@ -201,13 +201,17 @@ describe("PiHarness", () => {
     const assemblyProbe = vi.fn();
     const piAdapter = await import("../src/harness/assembly/adapters/pi");
     const createAssembly = piAdapter.createPiToolAssembly;
-    vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
+    const assemblySpy = vi.spyOn(piAdapter, "createPiToolAssembly").mockImplementation((harnessCtx) => {
       const assembly = createAssembly(harnessCtx);
       assemblyProbe(assembly.systemPrompt);
       return assembly;
     });
 
-    await new PiHarness({ compaction: policy }).run(ctx);
+    try {
+      await new PiHarness({ compaction: policy }).run(ctx);
+    } finally {
+      assemblySpy.mockRestore();
+    }
 
     expect(events).toContainEqual(expect.objectContaining({
       type: "session.warning",

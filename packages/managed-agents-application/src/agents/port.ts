@@ -29,11 +29,33 @@ export interface AgentModelInput {
   inferenceGeo?: string | null;
   providerOptions?: JsonObject | null;
   speed?: AgentSpeed | null;
+  maxTokens?: number | null;
+}
+
+export interface AgentContextManagementEditInput {
+  type: "compact" | "compact_20260112";
+  trigger?: { type: "input_tokens"; value: number };
+  instructions?: string;
+  pause_after_compaction?: boolean;
+}
+
+export interface AgentContextManagementInput {
+  edits: AgentContextManagementEditInput[];
+}
+
+export interface AgentOpenAiModelSettingsInput {
+  max_tokens?: number;
+  context_management?: Array<{
+    type: "compaction";
+    compact_threshold: number;
+  }>;
 }
 
 export interface AgentOpenMaInput {
   auxiliaryModel?: string | AgentModelInput | null;
   appendablePrompts?: string[] | null;
+  contextManagement?: AgentContextManagementInput | null;
+  openaiModelSettings?: AgentOpenAiModelSettingsInput | null;
   harness?: string | null;
   acp?: AgentAcpConfig | null;
   runtimeBinding?: AgentRuntimeBinding | null;

@@ -69,6 +69,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 
+import { readHarnessAgentModelSettings } from "@open-managed-agents/agent/harness/agent-model-settings";
 import { createPiModelRuntime } from "@open-managed-agents/agent/harness/pi-provider";
 import { resolveHarness } from "@open-managed-agents/agent/harness/registry";
 import { allowAllLegacyHarnessTools, toLegacyHarnessAgentConfig, toLegacyHarnessEnvironmentConfig, resolveNodeManagedAuxiliaryToolModel } from "../lib/node-managed-agent-codec.js";
@@ -571,6 +572,7 @@ export async function createManagedNodeRuntime(
     buildHarnessContext: async (input) => {
       const agent = toLegacyHarnessAgentConfig(input.session);
       const creds = await resolveNodeModelCreds(input.workspaceId, agent.model);
+      const modelSettings = readHarnessAgentModelSettings(agent.model);
       const pi = createPiModelRuntime({
         model: creds.wireModel,
         apiKey: creds.apiKey,
@@ -578,6 +580,7 @@ export async function createManagedNodeRuntime(
         baseURL: creds.baseURL,
         customHeaders: creds.customHeaders,
         piConfig: creds.piConfig,
+        modelMaxTokens: modelSettings?.maxTokens,
         providerOptions:
           typeof agent.model !== "string" &&
           agent.model.provider_options?.pi &&

@@ -9,6 +9,7 @@ import { SummarizeCompactionStrategy, resolveCompactionStrategy } from "./compac
 import type { CompactionStrategy } from "./compaction";
 import { ALL_TOOLS } from "./tools";
 import { llmLoggingMiddleware, llmLogKey } from "./llm-logging-middleware";
+import { readHarnessAgentModelSettings } from "./agent-model-settings";
 import { warnAiSdkHarnessDeprecatedOnce } from "./ai-sdk-deprecation";
 
 // Single source of truth lives in ./tools.ts (ALL_TOOLS). Importing here so
@@ -17,7 +18,7 @@ import { warnAiSdkHarnessDeprecatedOnce } from "./ai-sdk-deprecation";
 // `cancel_schedule`, and `list_schedules` to mis-emit as
 // `agent.custom_tool_use` instead of `agent.tool_use`.
 const BUILTIN_TOOLS = new Set(ALL_TOOLS);
-const isMcpTool = (name: string) => name.startsWith("mcp_");
+export const isMcpTool = (name: string) => name.startsWith("mcp_");
 // Exported so tests can assert classification directly. Returning true here
 // makes `runtime.broadcast` emit `agent.tool_use`; false routes to
 // `agent.custom_tool_use`. Down-stream consumers (Console UI, SDK event
@@ -373,6 +374,7 @@ export class DefaultHarness implements HarnessInterface {
     //    per-call timing + per-call usage that Anthropic's Managed Agents wire
     //    spec exposes.
     const modelId = typeof agent.model === "string" ? agent.model : agent.model.id;
+    const agentMaxTokens = readHarnessAgentModelSettings(agent.model)?.maxTokens;
 
     // 5. Run agent loop with retry + timeout + prompt caching.
     //
@@ -459,6 +461,7 @@ export class DefaultHarness implements HarnessInterface {
       try {
       const r = streamText({
       model: wrappedModel,
+      ...(agentMaxTokens !== undefined && { maxTokens: agentMaxTokens }),
       // Empty system prompt → omit entirely. Anthropic's API rejects an
       // empty `system` block ("system: text content blocks must be non-
       // empty"); the AI SDK forwards the empty string as a block instead

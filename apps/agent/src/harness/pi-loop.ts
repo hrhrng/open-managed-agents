@@ -29,7 +29,12 @@ import {
   type PiCompactionPolicy,
   type PiCompactionResult,
 } from "./pi-compaction";
-import { emitHarnessToolUseFromCall } from "./default-loop";
+import { readHarnessAgentModelSettings } from "./agent-model-settings";
+import {
+  resolveCompactionSummaryInstructions,
+  resolveCompactionTriggerInputTokens,
+} from "./compaction-config";
+import { emitHarnessToolUseFromCall, isMcpTool } from "./default-loop";
 import { withPiRuntimeRequestOptions } from "./pi-provider";
 
 const EMPTY_USAGE: Usage = {
@@ -86,7 +91,11 @@ export class PiHarness implements HarnessInterface {
     }
 
     if (outcome.providerFailure && !ctx.runtime.abortSignal?.aborted) {
-      const message = outcome.providerFailure.errorMessage ?? "Pi provider request failed";
+      const failure = outcome.providerFailure;
+      const detail = failure.errorMessage?.trim();
+      const message = detail && detail.length > 0
+        ? detail
+        : `Pi provider request failed (stop_reason=${failure.stopReason})`;
       const external = classifyExternalError(new Error(message));
       throw external instanceof Error ? external : new ModelError(message);
     }
@@ -155,25 +164,34 @@ export class PiHarness implements HarnessInterface {
   }
 
   private async compactBeforeTurn(ctx: HarnessContext, force: boolean = false): Promise<boolean> {
+    const metadata = (ctx.agent.metadata ?? {}) as Record<string, unknown>;
+    const summaryInstructions = resolveCompactionSummaryInstructions(ctx.agent);
     const policy = this.options.compaction === undefined
-      ? resolvePiCompactionPolicy((ctx.agent.metadata ?? {}) as Record<string, unknown>)
+      ? resolvePiCompactionPolicy(metadata, summaryInstructions)
       : this.options.compaction;
     if (!ctx.pi) return false;
 
     const events = ctx.runtime.history.getEvents();
     const modelMessages = await eventsToMessagesAsync(events, ctx.fileFetcher);
     const messages = modelMessagesToPi(modelMessages, ctx.pi.model);
-    const contextWindowTokens = ctx.pi.model.contextWindow || 128_000;
-    if (!force && !policy.shouldCompact(events, { messages, contextWindowTokens })) return false;
+    const piTools = toolsToPi(ctx);
+    const compactionCtx = {
+      messages,
+      model: ctx.pi.model,
+      systemPrompt: ctx.systemPrompt,
+      tools: piTools,
+      compactionTriggerInputTokens: resolveCompactionTriggerInputTokens(
+        ctx.pi.model,
+        ctx.agent,
+        metadata,
+      ),
+    };
+    if (!force && !policy.shouldCompact(events, compactionCtx)) return false;
 
     try {
       const result = await policy.compact(events, {
-        messages,
-        contextWindowTokens,
+        ...compactionCtx,
         models: ctx.pi.models,
-        model: ctx.pi.model,
-        systemPrompt: ctx.systemPrompt,
-        tools: toolsToPi(ctx),
         runtime: ctx.runtime,
         sessionId: ctx.session_id,
         abortSignal: ctx.runtime.abortSignal,
@@ -301,12 +319,13 @@ async function translatePiEvent(
     ) && !message.content.some((block) => block.type === "toolCall");
 
     if (overflowRecovery) {
+      const modelRequestStartId = state.spanId;
       await closeLiveStreams(ctx, state, "aborted");
       const usage = message.usage;
       runtime.broadcast({
         type: "span.model_request_end",
         model: modelId,
-        model_request_start_id: state.spanId ?? undefined,
+        model_request_start_id: modelRequestStartId ?? undefined,
         provider_response_id: message.responseId,
         model_usage: {
           input_tokens: usage.input,
@@ -396,12 +415,22 @@ async function translatePiEvent(
   if (event.type === "tool_execution_end") {
     const details = event.result?.details as { openmaPendingConfirmation?: boolean } | undefined;
     if (!details?.openmaPendingConfirmation) {
-      runtime.broadcast({
-        type: "agent.tool_result",
-        tool_use_id: event.toolCallId,
-        content: piContentToWire(event.result?.content ?? []),
-        is_error: event.isError,
-      } as SessionEvent);
+      const content = piContentToWire(event.result?.content ?? []);
+      if (isMcpTool(event.toolName)) {
+        runtime.broadcast({
+          type: "agent.mcp_tool_result",
+          mcp_tool_use_id: event.toolCallId,
+          content: typeof content === "string" ? content : JSON.stringify(content),
+          ...(event.isError && { is_error: true }),
+        } as SessionEvent);
+      } else {
+        runtime.broadcast({
+          type: "agent.tool_result",
+          tool_use_id: event.toolCallId,
+          content,
+          is_error: event.isError,
+        } as SessionEvent);
+      }
     }
   }
 

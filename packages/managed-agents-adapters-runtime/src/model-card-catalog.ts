@@ -113,7 +113,7 @@ function resolvePiModel(card: ModelCardCatalogRecord): PiModel<Api> | null {
       reasoning: typeof config.reasoning === "boolean" ? config.reasoning : false,
       input: Array.isArray(config.input) ? config.input : ["text"],
       cost: config.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: typeof config.contextWindow === "number" ? config.contextWindow : 128_000,
+      contextWindow: typeof config.contextWindow === "number" ? config.contextWindow : 256_000,
       maxTokens: typeof config.maxTokens === "number" ? config.maxTokens : 32_768,
       ...(config.thinkingLevelMap ? { thinkingLevelMap: config.thinkingLevelMap } : {}),
       ...(config.samplingParams ? { samplingParams: config.samplingParams } : {}),

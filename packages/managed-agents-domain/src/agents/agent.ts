@@ -16,7 +16,34 @@ export interface AgentModel {
   /** Provider-namespaced, JSON-compatible inference options. */
   providerOptions?: JsonObject;
   speed?: AgentSpeed;
+  /** OMA extension: per-turn output token ceiling (catalog default when unset). */
+  maxTokens?: number;
 }
+
+/** Mirrors Anthropic Messages `context_management.edits` compaction shape. */
+export interface AgentContextManagementEdit {
+  type: "compact" | "compact_20260112";
+  trigger?: { type: "input_tokens"; value: number };
+  instructions?: string;
+  pause_after_compaction?: boolean;
+}
+
+export interface AgentContextManagement {
+  edits: AgentContextManagementEdit[];
+}
+
+/** OpenAI Agents SDK `model_settings` compaction shape. */
+export interface AgentOpenAiModelSettings {
+  max_tokens?: number;
+  context_management?: Array<{
+    type: "compaction";
+    compact_threshold: number;
+  }>;
+}
+
+export type AgentCompactionWireFormat =
+  | "anthropic_context_management"
+  | "openai_model_settings";
 
 export interface AgentAcpProcess {
   id?: string;
@@ -52,6 +79,9 @@ export interface AgentRuntimeBinding {
 export interface AgentOpenMaExtensions {
   auxiliaryModel?: AgentModel;
   appendablePrompts?: string[];
+  contextManagement?: AgentContextManagement;
+  openaiModelSettings?: AgentOpenAiModelSettings;
+  compactionWireFormat?: AgentCompactionWireFormat;
   harness?: string;
   acp?: AgentAcpConfig;
   runtimeBinding?: AgentRuntimeBinding;

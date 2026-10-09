@@ -3,4 +3,4 @@
 "@openma/cli": patch
 ---
 
-Document that agents use the Pi agent-core harness by default. The `ai-sdk` harness (legacy AI SDK default-loop) remains available but is deprecated and emits a one-time `session.warning` per session. CLI agent help notes `ai-sdk` is deprecated.
+Pi agent-core is the default harness; legacy `ai-sdk` remains available but deprecated (one-time `session.warning` per session). Agents accept compaction via `_oma.context_management` (Anthropic Messages shape) or `_oma.model_settings` (OpenAI Agents SDK shape); conflicting dual definitions are rejected at save time.

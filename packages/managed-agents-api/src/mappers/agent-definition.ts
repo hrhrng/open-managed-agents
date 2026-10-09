@@ -462,6 +462,7 @@ export function fromAgentModel(model: AgentModel): object {
       provider_options: model.providerOptions,
     }),
     ...(model.speed !== undefined && { speed: model.speed }),
+    ...(model.maxTokens !== undefined && { max_tokens: model.maxTokens }),
   };
 }
 

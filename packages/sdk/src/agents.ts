@@ -89,9 +89,30 @@ export interface OpenMaAgentRuntimeBindingParams {
 }
 
 /** OpenMA's namespaced additions to an Agent create or update payload. */
+export interface OpenMaContextManagementParams {
+  edits: Array<{
+    type: "compact" | "compact_20260112";
+    trigger?: { type: "input_tokens"; value: number };
+    instructions?: string;
+    pause_after_compaction?: boolean;
+  }>;
+}
+
+export interface OpenMaOpenAiModelSettingsParams {
+  max_tokens?: number;
+  context_management?: Array<{
+    type: "compaction";
+    compact_threshold: number;
+  }>;
+}
+
 export interface OpenMaAgentExtensionParams {
   aux_model?: OpenMaAgentModelParams | null;
   appendable_prompts?: string[] | null;
+  /** Anthropic Messages-style compaction (OMA extension under `_oma`). */
+  context_management?: OpenMaContextManagementParams | null;
+  /** OpenAI Agents SDK-style compaction and output limits. */
+  model_settings?: OpenMaOpenAiModelSettingsParams | null;
   /**
    * @deprecated Prefer omitting `harness` (Pi agent-core default). Use `"ai-sdk"` only for the legacy AI SDK loop.
    */
@@ -122,6 +143,8 @@ export interface OpenMaAgentAcp {
 export interface OpenMaAgentExtension {
   aux_model?: BetaManagedAgentsModelConfig;
   appendable_prompts?: string[];
+  context_management?: OpenMaContextManagementParams;
+  model_settings?: OpenMaOpenAiModelSettingsParams;
   /** @deprecated Legacy harness id; unset uses Pi. `"ai-sdk"` selects the deprecated AI SDK loop. */
   harness?: string;
   acp?: OpenMaAgentAcp;

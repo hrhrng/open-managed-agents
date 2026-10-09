@@ -245,6 +245,7 @@ export function toLegacyHarnessAgentConfig(
         provider_options: structuredClone(agent.model.providerOptions),
       }),
       ...(agent.model.speed !== undefined && { speed: agent.model.speed }),
+      ...(agent.model.maxTokens !== undefined && { max_tokens: agent.model.maxTokens }),
     },
     system: agent.system ?? "",
     tools: agent.tools.map(legacyTool),
@@ -287,6 +288,12 @@ export function toLegacyHarnessAgentConfig(
     }),
     ...(agent.openma?.appendablePrompts !== undefined && {
       appendable_prompts: agent.openma.appendablePrompts,
+    }),
+    ...(agent.openma?.contextManagement !== undefined && {
+      context_management: structuredClone(agent.openma.contextManagement),
+    }),
+    ...(agent.openma?.openaiModelSettings !== undefined && {
+      model_settings: structuredClone(agent.openma.openaiModelSettings),
     }),
     ...(agent.openma?.harness !== undefined && { harness: agent.openma.harness }),
     ...(agent.openma?.acp !== undefined && {

@@ -586,6 +586,16 @@ export function toSessionEventResponse(event: SessionEventView): object {
           session_thread_id: event.sessionThreadId,
         }),
       };
+    case "session.warning":
+      return {
+        ...(event.sessionThreadId !== undefined && { session_thread_id: event.sessionThreadId }),
+        id: event.id,
+        type: event.type,
+        source: event.source,
+        message: event.message,
+        processed_at: event.processedAt,
+        ...(event.details !== undefined && { details: event.details }),
+      };
     case "session.error":
       return {
         ...(event.sessionThreadId !== undefined && { session_thread_id: event.sessionThreadId }),

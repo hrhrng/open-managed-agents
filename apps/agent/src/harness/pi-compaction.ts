@@ -8,19 +8,18 @@ import type {
   TextContent,
   Tool,
 } from "@earendil-works/pi-ai";
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
 import type { HarnessRuntime } from "./interface";
 
-/** Matches pi-ai `CONTEXT_SAFETY_TOKENS` reserved for model output. */
+/** Matches pi-ai `CONTEXT_SAFETY_TOKENS` in simple-options (output margin). */
 export const PI_CONTEXT_OUTPUT_RESERVE_TOKENS = 4096;
 
-export function effectivePiCompactionWindowTokens(contextWindowTokens: number): number {
-  return Math.max(0, contextWindowTokens - PI_CONTEXT_OUTPUT_RESERVE_TOKENS);
-}
-
-function piCompactionTriggerBudget(contextWindowTokens: number): number {
-  const effective = effectivePiCompactionWindowTokens(contextWindowTokens);
-  return effective > 0 ? effective : contextWindowTokens;
+export function piCompactionInputBudget(model: Model<Api>): number {
+  return Math.max(
+    0,
+    model.contextWindow - model.maxTokens - PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+  );
 }
 
 export interface PiCompactionResult {
@@ -32,7 +31,11 @@ export interface PiCompactionResult {
 
 export interface PiCompactionCheckContext {
   messages: Message[];
-  contextWindowTokens: number;
+  model: Model<Api>;
+  systemPrompt: string;
+  tools: Tool[];
+  /** Resolved input-token threshold (see compaction-config). */
+  compactionTriggerInputTokens: number;
 }
 
 export interface PiCompactionRunContext extends PiCompactionCheckContext {
@@ -90,11 +93,16 @@ export class PiSummaryCompactionPolicy implements PiCompactionPolicy {
 
   shouldCompact(
     _events: SessionEvent[],
-    { messages, contextWindowTokens }: PiCompactionCheckContext,
+    ctx: PiCompactionCheckContext,
   ): boolean {
-    const budget = piCompactionTriggerBudget(contextWindowTokens);
-    return estimatePiMessagesTokens(messages)
-      > budget * normalizeTriggerFraction(this.options.triggerFraction);
+    const fraction = normalizeTriggerFraction(this.options.triggerFraction);
+    const threshold = ctx.compactionTriggerInputTokens * fraction;
+    const { tokens } = estimateContextTokens({
+      systemPrompt: ctx.systemPrompt,
+      messages: ctx.messages,
+      tools: ctx.tools,
+    });
+    return tokens >= threshold;
   }
 
   async compact(
@@ -191,6 +199,7 @@ export class PiSummaryCompactionPolicy implements PiCompactionPolicy {
 
 export function resolvePiCompactionPolicy(
   metadata: Record<string, unknown> | undefined,
+  summaryInstructions?: string,
 ): PiCompactionPolicy {
   const name = typeof metadata?.compaction_strategy === "string"
     ? metadata.compaction_strategy
@@ -199,12 +208,13 @@ export function resolvePiCompactionPolicy(
   const supportedName = name === "summarize" || name === "opencode-style" || name === "cc-style"
     ? name
     : "cc-style";
+  const metadataFraction = finiteNumber(metadata?.compaction_trigger_fraction);
   return new PiSummaryCompactionPolicy(supportedName, {
-    triggerFraction: finiteNumber(metadata?.compaction_trigger_fraction),
+    triggerFraction: metadataFraction,
     maxSummaryTokens: finiteNumber(metadata?.compaction_max_summary_tokens),
     summaryPrompt: typeof metadata?.compaction_summary_prompt === "string"
       ? metadata.compaction_summary_prompt
-      : undefined,
+      : summaryInstructions,
   });
 }
 

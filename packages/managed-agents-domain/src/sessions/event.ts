@@ -274,6 +274,15 @@ export type HistorySessionEvent =
     }
   | {
       id: string;
+      type: "session.warning";
+      source: string;
+      message: string;
+      processedAt: string;
+      sessionThreadId?: string | null;
+      details?: Record<string, unknown>;
+    }
+  | {
+      id: string;
       type: "session.error";
       sessionThreadId?: string | null;
       error: SessionExecutionError;

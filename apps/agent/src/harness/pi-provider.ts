@@ -16,6 +16,19 @@ import { getApiProvider } from "@earendil-works/pi-ai/compat";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 export { toAiSdkLanguageModel } from "./pi-ai-sdk";
 
+/** Unknown / non-catalog models: conservative context floor for OMA (not 128k). */
+export const PI_UNKNOWN_MODEL_CONTEXT_WINDOW = 256_000;
+export const PI_UNKNOWN_MODEL_MAX_TOKENS = 32_768;
+
+/** pi-ai 1.1.0 catalog renames — keep stored model-card wire ids working. */
+const PI_CATALOG_MODEL_ID_ALIASES: Record<string, string> = {
+  "deepseek-v4-flash": "deepseek-flash",
+};
+
+export function resolvePiCatalogModelId(modelId: string): string {
+  return PI_CATALOG_MODEL_ID_ALIASES[modelId] ?? modelId;
+}
+
 export interface PiModelRuntime {
   models: Models;
   model: Model<Api>;
@@ -65,6 +78,8 @@ export interface PiModelCardBinding {
   thinkingLevel?: ModelThinkingLevel;
   /** Managed Agents `model.speed`; inherited by sessions pinned to this agent version. */
   speed?: "standard" | "fast";
+  /** Agent `model.max_tokens` override (catalog `Model.maxTokens` when unset). */
+  modelMaxTokens?: number;
 }
 
 interface ProviderPlan {
@@ -87,7 +102,8 @@ interface ProviderPlan {
 export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime {
   const plan = resolveProviderPlan(input.provider, input.piConfig);
   const catalogModels = plan.catalog?.getModels() ?? [];
-  const catalogModel = catalogModels.find((model) => model.id === input.model);
+  const catalogId = resolvePiCatalogModelId(input.model);
+  const catalogModel = catalogModels.find((model) => model.id === catalogId);
   const baseUrl = input.baseURL ?? catalogModel?.baseUrl ?? plan.catalog?.baseUrl;
   const api = input.piConfig?.api
     ?? plan.api
@@ -118,8 +134,8 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
         // Pi requires capacity hints for custom models. These are deliberately
         // conservative fallbacks, not request/protocol behavior; a future
         // model-card metadata field can replace them without changing the Port.
-        contextWindow: 128_000,
-        maxTokens: 32_768,
+        contextWindow: PI_UNKNOWN_MODEL_CONTEXT_WINDOW,
+        maxTokens: PI_UNKNOWN_MODEL_MAX_TOKENS,
       };
   const model: Model<Api> = {
     ...baseModel,
@@ -130,7 +146,13 @@ export function createPiModelRuntime(input: PiModelCardBinding): PiModelRuntime 
     provider: plan.id,
     api,
     baseUrl,
+    ...(input.modelMaxTokens !== undefined && { maxTokens: input.modelMaxTokens }),
   };
+  if (model.maxTokens >= model.contextWindow) {
+    throw new Error(
+      `max_tokens (${model.maxTokens}) must be less than context window (${model.contextWindow})`,
+    );
+  }
   const providerStreams = resolveProviderStreams(plan, model, catalogModel);
 
   const provider = createProvider({
@@ -187,6 +209,9 @@ export function withPiRuntimeRequestOptions(
         : {}
     ),
   };
+  if (merged.maxTokens === undefined) {
+    merged.maxTokens = runtime.model.maxTokens;
+  }
   const baseFetch = merged.fetch ?? observablePiFetch;
   if (runtime.speed !== "fast") return { ...merged, fetch: baseFetch };
 

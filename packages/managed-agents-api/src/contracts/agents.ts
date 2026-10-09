@@ -45,6 +45,8 @@ export interface OpenMaProviderOptions {
 export type OpenMaAgentModelConfigBody = AgentModelConfig & {
   /** OpenMA extension: provider-namespaced, JSON-compatible inference options. */
   provider_options?: OpenMaProviderOptions | null;
+  /** OMA extension: per-turn output token ceiling. */
+  max_tokens?: number | null;
 };
 
 export type OpenMaAgentModelBody = AgentModelName | OpenMaAgentModelConfigBody;
@@ -88,6 +90,21 @@ export interface OpenMaAgentRuntimeBindingBody {
 export interface OpenMaAgentExtensionBody {
   aux_model?: OpenMaAgentModelBody | null;
   appendable_prompts?: string[] | null;
+  context_management?: {
+    edits: Array<{
+      type: "compact" | "compact_20260112";
+      trigger?: { type: "input_tokens"; value: number };
+      instructions?: string;
+      pause_after_compaction?: boolean;
+    }>;
+  } | null;
+  model_settings?: {
+    max_tokens?: number;
+    context_management?: Array<{
+      type: "compaction";
+      compact_threshold: number;
+    }>;
+  } | null;
   harness?: string | null;
   acp?: OpenMaAgentAcpBody | null;
   runtime_binding?: OpenMaAgentRuntimeBindingBody | null;
@@ -135,6 +152,7 @@ const modelConfigSchema: z.ZodType<OpenMaAgentModelConfigBody> = z
     inference_geo: z.string().nullable().optional(),
     provider_options: providerOptionsSchema.nullable().optional(),
     speed: z.enum(["standard", "fast"]).nullable().optional(),
+    max_tokens: z.number().int().positive().nullable().optional(),
   })
   .strict();
 
@@ -175,10 +193,49 @@ const runtimeBindingSchema: z.ZodType<OpenMaAgentRuntimeBindingBody> = z
   })
   .strict();
 
+const contextManagementSchema = z
+  .object({
+    edits: z.array(
+      z
+        .object({
+          type: z.enum(["compact", "compact_20260112"]),
+          trigger: z
+            .object({
+              type: z.literal("input_tokens"),
+              value: z.number().int().positive(),
+            })
+            .strict()
+            .optional(),
+          instructions: z.string().optional(),
+          pause_after_compaction: z.boolean().optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const openAiModelSettingsSchema = z
+  .object({
+    max_tokens: z.number().int().positive().optional(),
+    context_management: z
+      .array(
+        z
+          .object({
+            type: z.literal("compaction"),
+            compact_threshold: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict();
+
 const openMaAgentExtensionSchema: z.ZodType<OpenMaAgentExtensionBody> = z
   .object({
     aux_model: agentModelInputSchema.nullable().optional(),
     appendable_prompts: z.array(z.string().min(1)).nullable().optional(),
+    context_management: contextManagementSchema.nullable().optional(),
+    model_settings: openAiModelSettingsSchema.nullable().optional(),
     harness: z.string().min(1).nullable().optional(),
     acp: agentAcpSchema.nullable().optional(),
     runtime_binding: runtimeBindingSchema.nullable().optional(),

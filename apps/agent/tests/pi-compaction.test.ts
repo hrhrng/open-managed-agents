@@ -10,9 +10,9 @@ import {
 } from "@earendil-works/pi-ai";
 import type { HarnessRuntime } from "../src/harness/interface";
 import {
-  effectivePiCompactionWindowTokens,
   estimatePiMessagesTokens,
   PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+  piCompactionInputBudget,
   PiSummaryCompactionPolicy,
   resolvePiCompactionPolicy,
 } from "../src/harness/pi-compaction";
@@ -82,32 +82,42 @@ describe("Pi compaction policy", () => {
     const low = resolvePiCompactionPolicy({ compaction_trigger_fraction: -1 });
     expect(low.shouldCompact([], {
       messages: [{ role: "user", content: "12345678", timestamp: 1 }],
-      contextWindowTokens: 100,
+      model,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: 100,
     })).toBe(true);
     const high = resolvePiCompactionPolicy({ compaction_trigger_fraction: 2 });
     expect(high.shouldCompact([], {
       messages: [{ role: "user", content: "12345678", timestamp: 1 }],
-      contextWindowTokens: 10_000,
+      model,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: 10_000,
     })).toBe(false);
   });
 
   it("reserves pi-ai output safety tokens when deciding to compact", () => {
-    expect(effectivePiCompactionWindowTokens(32_768)).toBe(
-      32_768 - PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+    const catalogModel = { ...model, contextWindow: 32_768, maxTokens: 8_192 };
+    expect(piCompactionInputBudget(catalogModel)).toBe(
+      32_768 - 8_192 - PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
     );
-    const policy = new PiSummaryCompactionPolicy("cc-style", { triggerFraction: 0.75 });
-    const smallWindow = 8_192;
-    const budget = effectivePiCompactionWindowTokens(smallWindow);
-    const threshold = budget * 0.75;
-    const under = Math.max(1, Math.floor(threshold) - 20);
-    const over = Math.floor(threshold) + 20;
+    const policy = new PiSummaryCompactionPolicy("cc-style", { triggerFraction: 1 });
+    const checkModel = { ...model, contextWindow: 32_768, maxTokens: 8_192 };
+    const budget = piCompactionInputBudget(checkModel);
     expect(policy.shouldCompact([], {
-      messages: [{ role: "user", content: "x".repeat(under * 4), timestamp: 1 }],
-      contextWindowTokens: smallWindow,
+      messages: [{ role: "user", content: "short", timestamp: 1 }],
+      model: checkModel,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: budget,
     })).toBe(false);
     expect(policy.shouldCompact([], {
-      messages: [{ role: "user", content: "x".repeat(over * 4), timestamp: 1 }],
-      contextWindowTokens: smallWindow,
+      messages: [{ role: "user", content: "x".repeat(200_000), timestamp: 1 }],
+      model: checkModel,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: budget,
     })).toBe(true);
   });
 

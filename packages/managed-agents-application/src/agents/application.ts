@@ -16,7 +16,13 @@ import type {
   RetrieveAgentResult,
   UpdateAgentCommand,
   UpdateAgentResult,
+  type AgentContextManagementInput,
+  type AgentOpenMaInput,
 } from "./port";
+import {
+  parseOpenAiModelSettings,
+  resolveCompactionWireInput,
+} from "./compaction-wire";
 import type { AgentStore } from "@open-managed-agents/agent-store";
 import type {
   AgentMultiagent,
@@ -109,14 +115,139 @@ function normalizeModel(model: string | AgentModelInput): AgentModelView {
       providerOptions: structuredClone(model.providerOptions),
     }),
     ...(model.speed != null && { speed: model.speed }),
+    ...(model.maxTokens != null && { maxTokens: model.maxTokens }),
   };
+}
+
+function validateAgentModelCapacity(model: AgentModelView): string | null {
+  if (model.maxTokens !== undefined && model.maxTokens < 1) {
+    return "model.max_tokens must be a positive integer";
+  }
+  return null;
+}
+
+function isCompactEditType(type: string): boolean {
+  return type === "compact" || type === "compact_20260112";
+}
+
+function validateContextManagement(
+  contextManagement: AgentContextManagementInput | null | undefined,
+): string | null {
+  if (contextManagement == null) return null;
+  for (const edit of contextManagement.edits) {
+    if (!isCompactEditType(edit.type)) {
+      return "context_management.edits only supports type compact or compact_20260112";
+    }
+    if (
+      edit.trigger !== undefined
+      && (edit.trigger.type !== "input_tokens"
+        || !Number.isInteger(edit.trigger.value)
+        || edit.trigger.value < 1)
+    ) {
+      return "context_management compact trigger must be input_tokens with a positive value";
+    }
+  }
+  return null;
+}
+
+function validateOpenAiModelSettings(
+  modelSettings: AgentOpenMaInput["openaiModelSettings"],
+): string | null {
+  if (modelSettings == null) return null;
+  if (
+    modelSettings.max_tokens !== undefined
+    && (!Number.isInteger(modelSettings.max_tokens) || modelSettings.max_tokens < 1)
+  ) {
+    return "model_settings.max_tokens must be a positive integer";
+  }
+  for (const entry of modelSettings.context_management ?? []) {
+    if (entry.type !== "compaction") {
+      return "model_settings.context_management only supports type compaction";
+    }
+    if (
+      !Number.isInteger(entry.compact_threshold)
+      || entry.compact_threshold < 1
+    ) {
+      return "model_settings compaction compact_threshold must be a positive integer";
+    }
+  }
+  return null;
+}
+
+function validateModelMaxTokensConflict(
+  model: AgentModelView,
+  openma: AgentOpenMaInput | null | undefined,
+): string | null {
+  const fromOpenAi = parseOpenAiModelSettings(openma?.openaiModelSettings)
+    ?.modelMaxTokensFromOpenAi;
+  if (fromOpenAi === undefined) return null;
+  if (model.maxTokens !== undefined && model.maxTokens !== fromOpenAi) {
+    return "Conflicting max_tokens between model.max_tokens and _oma.model_settings.max_tokens";
+  }
+  return null;
+}
+
+function mergeOpenMaCompactionInput(
+  current: AgentView["openma"],
+  patch: AgentOpenMaInput | undefined,
+): AgentOpenMaInput | null {
+  if (patch === undefined) return null;
+  const merged: AgentOpenMaInput = {};
+  if (patch.contextManagement !== undefined) {
+    merged.contextManagement = patch.contextManagement;
+  } else if (current?.contextManagement !== undefined) {
+    merged.contextManagement = current.contextManagement;
+  }
+  if (patch.openaiModelSettings !== undefined) {
+    merged.openaiModelSettings = patch.openaiModelSettings;
+  } else if (current?.openaiModelSettings !== undefined) {
+    merged.openaiModelSettings = current.openaiModelSettings;
+  }
+  if (
+    merged.contextManagement === undefined
+    && merged.openaiModelSettings === undefined
+  ) {
+    return null;
+  }
+  return merged;
+}
+
+function validateCompactionWire(
+  openma: AgentOpenMaInput | null | undefined,
+  model?: AgentModelView,
+): string | null {
+  const invalidContext = validateContextManagement(openma?.contextManagement);
+  if (invalidContext !== null) return invalidContext;
+  const invalidOpenAi = validateOpenAiModelSettings(openma?.openaiModelSettings);
+  if (invalidOpenAi !== null) return invalidOpenAi;
+  const resolved = resolveCompactionWireInput(openma);
+  if (resolved.type === "error") return resolved.message;
+  if (model !== undefined) {
+    const maxTokensConflict = validateModelMaxTokensConflict(model, openma);
+    if (maxTokensConflict !== null) return maxTokensConflict;
+  }
+  return null;
+}
+
+function applyOpenAiModelMaxTokens(
+  model: AgentModelView,
+  openma: AgentOpenMaInput | null | undefined,
+): AgentModelView {
+  const fromOpenAi = parseOpenAiModelSettings(openma?.openaiModelSettings)
+    ?.modelMaxTokensFromOpenAi;
+  if (fromOpenAi === undefined || model.maxTokens !== undefined) return model;
+  return { ...model, maxTokens: fromOpenAi };
 }
 
 function normalizeOpenMaCreate(
   input: CreateAgentCommand["openma"],
 ): AgentView["openma"] {
   if (input === undefined) return undefined;
+  const resolvedCompaction = resolveCompactionWireInput(input);
+  const compactionPatch =
+    resolvedCompaction.type === "ok" ? resolvedCompaction.patch : {};
   const extension = {
+    ...compactionPatch,
     ...(input.auxiliaryModel != null && {
       auxiliaryModel: normalizeModel(input.auxiliaryModel),
     }),
@@ -159,6 +290,22 @@ function patchOpenMa(
       : normalizeModel(patch.auxiliaryModel),
   );
   assign("appendablePrompts", patch.appendablePrompts);
+  if (patch.contextManagement !== undefined || patch.openaiModelSettings !== undefined) {
+    const resolved = resolveCompactionWireInput(patch);
+    if (resolved.type === "ok") {
+      if (patch.contextManagement === null) delete next.contextManagement;
+      else if (resolved.patch.contextManagement !== undefined) {
+        next.contextManagement = resolved.patch.contextManagement;
+      }
+      if (patch.openaiModelSettings === null) delete next.openaiModelSettings;
+      else if (resolved.patch.openaiModelSettings !== undefined) {
+        next.openaiModelSettings = resolved.patch.openaiModelSettings;
+      }
+      if (resolved.patch.compactionWireFormat !== undefined) {
+        next.compactionWireFormat = resolved.patch.compactionWireFormat;
+      }
+    }
+  }
   assign("harness", patch.harness);
   assign("acp", patch.acp);
   assign("runtimeBinding", patch.runtimeBinding);
@@ -337,6 +484,12 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (invalidMcpConfiguration !== null) {
       return { type: "invalid_request", message: invalidMcpConfiguration };
     }
+    let normalizedModel = normalizeModel(command.model);
+    normalizedModel = applyOpenAiModelMaxTokens(normalizedModel, command.openma);
+    const invalidModel = validateAgentModelCapacity(normalizedModel);
+    if (invalidModel !== null) {
+      return { type: "invalid_request", message: invalidModel };
+    }
     const timestamp = this.dependencies.clock.now().toISOString();
     const agentId = this.dependencies.ids.nextAgentId();
     const resolvedMultiagent = await resolveMultiagent(
@@ -348,6 +501,10 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (resolvedMultiagent.type === "invalid_request") {
       return resolvedMultiagent;
     }
+    const invalidCompaction = validateCompactionWire(command.openma, normalizedModel);
+    if (invalidCompaction !== null) {
+      return { type: "invalid_request", message: invalidCompaction };
+    }
     const openma = normalizeOpenMaCreate(command.openma);
     const agent = await this.dependencies.store.insert({
       workspaceId: this.dependencies.workspaceId,
@@ -358,7 +515,7 @@ export class AgentsApplicationService implements AgentsApplicationPort {
         description: command.description ?? null,
         mcpServers: command.mcpServers ?? [],
         metadata,
-        model: normalizeModel(command.model),
+        model: normalizedModel,
         multiagent: resolvedMultiagent.multiagent,
         name: command.name,
         ...(openma !== undefined && { openma }),
@@ -442,6 +599,25 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (resolvedMultiagent.type === "invalid_request") {
       return resolvedMultiagent;
     }
+    const nextModel =
+      command.model !== undefined
+        ? applyOpenAiModelMaxTokens(
+            normalizeModel(command.model),
+            command.openma,
+          )
+        : applyOpenAiModelMaxTokens(current.model, command.openma);
+    const invalidModelCapacity = validateAgentModelCapacity(nextModel);
+    if (invalidModelCapacity !== null) {
+      return { type: "invalid_request", message: invalidModelCapacity };
+    }
+    const mergedOpenMa = mergeOpenMaCompactionInput(
+      current.openma,
+      command.openma,
+    );
+    const invalidCompaction = validateCompactionWire(mergedOpenMa, nextModel);
+    if (invalidCompaction !== null) {
+      return { type: "invalid_request", message: invalidCompaction };
+    }
     const openma = patchOpenMa(current.openma, command.openma);
     const next: AgentView = {
       ...current,
@@ -454,9 +630,9 @@ export class AgentsApplicationService implements AgentsApplicationPort {
       ...(command.metadata !== undefined && {
         metadata,
       }),
-      ...(command.model !== undefined && {
-        model: normalizeModel(command.model),
-      }),
+      ...((command.model !== undefined
+        || command.openma?.openaiModelSettings !== undefined)
+        && { model: nextModel }),
       multiagent: resolvedMultiagent.multiagent,
       ...(command.name !== undefined && { name: command.name }),
       ...(command.skills !== undefined && {
@@ -472,6 +648,10 @@ export class AgentsApplicationService implements AgentsApplicationPort {
     if (command.openma !== undefined) {
       if (openma === undefined) delete next.openma;
       else next.openma = openma;
+    }
+    const invalidModel = validateAgentModelCapacity(next.model);
+    if (invalidModel !== null) {
+      return { type: "invalid_request", message: invalidModel };
     }
 
     const result = await this.dependencies.store.replaceCurrent({

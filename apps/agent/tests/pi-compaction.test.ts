@@ -10,7 +10,9 @@ import {
 } from "@earendil-works/pi-ai";
 import type { HarnessRuntime } from "../src/harness/interface";
 import {
+  effectivePiCompactionWindowTokens,
   estimatePiMessagesTokens,
+  PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
   PiSummaryCompactionPolicy,
   resolvePiCompactionPolicy,
 } from "../src/harness/pi-compaction";
@@ -85,8 +87,28 @@ describe("Pi compaction policy", () => {
     const high = resolvePiCompactionPolicy({ compaction_trigger_fraction: 2 });
     expect(high.shouldCompact([], {
       messages: [{ role: "user", content: "12345678", timestamp: 1 }],
-      contextWindowTokens: 100,
+      contextWindowTokens: 10_000,
     })).toBe(false);
+  });
+
+  it("reserves pi-ai output safety tokens when deciding to compact", () => {
+    expect(effectivePiCompactionWindowTokens(32_768)).toBe(
+      32_768 - PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+    );
+    const policy = new PiSummaryCompactionPolicy("cc-style", { triggerFraction: 0.75 });
+    const smallWindow = 8_192;
+    const budget = effectivePiCompactionWindowTokens(smallWindow);
+    const threshold = budget * 0.75;
+    const under = Math.max(1, Math.floor(threshold) - 20);
+    const over = Math.floor(threshold) + 20;
+    expect(policy.shouldCompact([], {
+      messages: [{ role: "user", content: "x".repeat(under * 4), timestamp: 1 }],
+      contextWindowTokens: smallWindow,
+    })).toBe(false);
+    expect(policy.shouldCompact([], {
+      messages: [{ role: "user", content: "x".repeat(over * 4), timestamp: 1 }],
+      contextWindowTokens: smallWindow,
+    })).toBe(true);
   });
 
   it("returns null without calling a model when history is too short", async () => {

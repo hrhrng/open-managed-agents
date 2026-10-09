@@ -222,10 +222,6 @@ function legacyTool(tool: AgentTool): LegacyAgentTool {
   }
 }
 
-function usesOpenAiAgentsCompatHarness(agent: Session["agent"]): boolean {
-  return agent.openma?.compatibility?.openai_agents_v1 !== undefined;
-}
-
 export function toLegacyHarnessAgentConfig(
   session: Session,
 ): LegacyManagedHarnessAgentConfig {
@@ -292,11 +288,7 @@ export function toLegacyHarnessAgentConfig(
     ...(agent.openma?.appendablePrompts !== undefined && {
       appendable_prompts: agent.openma.appendablePrompts,
     }),
-    ...(agent.openma?.harness !== undefined
-      ? { harness: agent.openma.harness }
-      : usesOpenAiAgentsCompatHarness(agent)
-        ? { harness: "ai-sdk" }
-        : {}),
+    ...(agent.openma?.harness !== undefined && { harness: agent.openma.harness }),
     ...(agent.openma?.acp !== undefined && {
       acp: {
         agent: agent.openma.acp.agent,

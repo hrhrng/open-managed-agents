@@ -11,6 +11,18 @@ import type {
 import type { ContentBlock, SessionEvent } from "@open-managed-agents/shared";
 import type { HarnessRuntime } from "./interface";
 
+/** Matches pi-ai `CONTEXT_SAFETY_TOKENS` reserved for model output. */
+export const PI_CONTEXT_OUTPUT_RESERVE_TOKENS = 4096;
+
+export function effectivePiCompactionWindowTokens(contextWindowTokens: number): number {
+  return Math.max(0, contextWindowTokens - PI_CONTEXT_OUTPUT_RESERVE_TOKENS);
+}
+
+function piCompactionTriggerBudget(contextWindowTokens: number): number {
+  const effective = effectivePiCompactionWindowTokens(contextWindowTokens);
+  return effective > 0 ? effective : contextWindowTokens;
+}
+
 export interface PiCompactionResult {
   summary: ContentBlock[];
   pre_tokens: number;
@@ -80,8 +92,9 @@ export class PiSummaryCompactionPolicy implements PiCompactionPolicy {
     _events: SessionEvent[],
     { messages, contextWindowTokens }: PiCompactionCheckContext,
   ): boolean {
+    const budget = piCompactionTriggerBudget(contextWindowTokens);
     return estimatePiMessagesTokens(messages)
-      > contextWindowTokens * normalizeTriggerFraction(this.options.triggerFraction);
+      > budget * normalizeTriggerFraction(this.options.triggerFraction);
   }
 
   async compact(

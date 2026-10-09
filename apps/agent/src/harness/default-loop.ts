@@ -113,6 +113,22 @@ function emitToolCallEvent(
   }
 }
 
+/** Shared wire mapping for Pi and AI SDK harness tool-call events. */
+export function emitHarnessToolUseFromCall(
+  runtime: HarnessContext["runtime"],
+  tools: Record<string, any>,
+  toolCallId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+): void {
+  emitToolCallEvent(runtime, tools, {
+    type: "tool-call",
+    toolCallId,
+    toolName,
+    input,
+  } as ContentPart<any> & { type: "tool-call" });
+}
+
 /**
  * Deterministic id for the `agent.thread_message_sent` event paired with
  * a given call_agent_* tool invocation. Lets the eventual

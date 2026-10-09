@@ -11,6 +11,7 @@ import {
   type Usage,
   type JsonObject,
   isContextOverflow,
+  isRecoverableLength,
 } from "@earendil-works/pi-ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
@@ -23,10 +24,12 @@ import {
 import { eventsToMessagesAsync } from "../runtime/history";
 import type { HarnessContext, HarnessInterface } from "./interface";
 import {
+  PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
   resolvePiCompactionPolicy,
   type PiCompactionPolicy,
   type PiCompactionResult,
 } from "./pi-compaction";
+import { emitHarnessToolUseFromCall } from "./default-loop";
 import { withPiRuntimeRequestOptions } from "./pi-provider";
 
 const EMPTY_USAGE: Usage = {
@@ -74,11 +77,9 @@ export class PiHarness implements HarnessInterface {
     const proactivelyCompacted = await this.compactBeforeTurn(ctx);
     let outcome = await this.runAgentOnce(ctx);
     if (
-      outcome.providerFailure
-      && !outcome.producedOutput
+      !ctx.runtime.abortSignal?.aborted
       && !proactivelyCompacted
-      && !ctx.runtime.abortSignal?.aborted
-      && isContextOverflow(outcome.providerFailure, ctx.pi.model.contextWindow)
+      && shouldRetryPiTurnAfterCompaction(outcome, ctx.pi.model)
     ) {
       const recovered = await this.compactBeforeTurn(ctx, true);
       if (recovered) outcome = await this.runAgentOnce(ctx);
@@ -96,7 +97,9 @@ export class PiHarness implements HarnessInterface {
 
   private async runAgentOnce(ctx: HarnessContext): Promise<PiRunOutcome> {
     const modelMessages = await eventsToMessagesAsync(ctx.runtime.history.getEvents(), ctx.fileFetcher);
-    const messages = modelMessagesToPi(modelMessages, ctx.pi!.model);
+    const messages = dropTrailingAssistantPiMessages(
+      modelMessagesToPi(modelMessages, ctx.pi!.model),
+    );
     if (messages.length === 0) {
       throw new ModelError("Pi harness cannot continue without a user message");
     }
@@ -289,6 +292,37 @@ async function translatePiEvent(
 
   if (event.type === "message_end" && event.message.role === "assistant") {
     const message = event.message;
+    const contextWindow = ctx.pi!.model.contextWindow;
+    const desiredMaxOutput = ctx.pi!.model.maxTokens || PI_CONTEXT_OUTPUT_RESERVE_TOKENS;
+    const overflowRecovery = isPiCompactionRecoverableAssistantEnd(
+      message,
+      contextWindow,
+      desiredMaxOutput,
+    ) && !message.content.some((block) => block.type === "toolCall");
+
+    if (overflowRecovery) {
+      await closeLiveStreams(ctx, state, "aborted");
+      const usage = message.usage;
+      runtime.broadcast({
+        type: "span.model_request_end",
+        model: modelId,
+        model_request_start_id: state.spanId ?? undefined,
+        provider_response_id: message.responseId,
+        model_usage: {
+          input_tokens: usage.input,
+          output_tokens: usage.output,
+          cache_read_input_tokens: usage.cacheRead,
+          cache_creation_input_tokens: usage.cacheWrite,
+        },
+        finish_reason: message.stopReason,
+        final_text_length: 0,
+        is_error: message.stopReason === "error",
+        ...(message.errorMessage ? { error_message: message.errorMessage.slice(0, 500) } : {}),
+      });
+      await runtime.reportUsage?.(usage.input, usage.output);
+      return { producedOutput: false, providerFailure: message };
+    }
+
     for (let index = 0; index < message.content.length; index++) {
       const block = message.content[index];
       if (block.type === "thinking") {
@@ -319,12 +353,13 @@ async function translatePiEvent(
       } else if (block.type === "toolCall") {
         const streamId = state.toolIds.get(index);
         if (streamId) await runtime.broadcastToolInputEnd(streamId, "completed");
-        runtime.broadcast({
-          type: "agent.tool_use",
-          id: block.id,
-          name: block.name,
-          input: block.arguments,
-        });
+        emitHarnessToolUseFromCall(
+          runtime,
+          ctx.tools as Record<string, unknown>,
+          block.id,
+          block.name,
+          block.arguments as Record<string, unknown>,
+        );
         producedOutput = true;
       }
     }
@@ -642,4 +677,51 @@ function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+function dropTrailingAssistantPiMessages(messages: Message[]): Message[] {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1]?.role === "assistant") end--;
+  return end === messages.length ? messages : messages.slice(0, end);
+}
+
+function isPiLengthStopWithNoDeliverableOutput(message: AssistantMessage): boolean {
+  const hasText = message.content.some(
+    (block) => block.type === "text" && block.text.trim().length > 0,
+  );
+  const hasTools = message.content.some((block) => block.type === "toolCall");
+  return !hasText && !hasTools;
+}
+
+function isPiCompactionRecoverableAssistantEnd(
+  message: AssistantMessage,
+  contextWindow?: number,
+  desiredMaxOutput?: number,
+): boolean {
+  if (message.stopReason === "error" && contextWindow && isContextOverflow(message, contextWindow)) {
+    return true;
+  }
+  if (message.stopReason !== "length") return false;
+  if (contextWindow && isContextOverflow(message, contextWindow)) return true;
+  if (isPiLengthStopWithNoDeliverableOutput(message)) return true;
+  return desiredMaxOutput !== undefined && isRecoverableLength(message, desiredMaxOutput);
+}
+
+function shouldRetryPiTurnAfterCompaction(
+  outcome: PiRunOutcome,
+  model: Model<Api>,
+): boolean {
+  if (outcome.producedOutput) return false;
+  const failure = outcome.providerFailure;
+  if (!failure) return true;
+  if (failure.stopReason === "error" && isContextOverflow(failure, model.contextWindow)) {
+    return true;
+  }
+  if (failure.stopReason === "length") {
+    const desiredMax = model.maxTokens || PI_CONTEXT_OUTPUT_RESERVE_TOKENS;
+    return isContextOverflow(failure, model.contextWindow)
+      || isRecoverableLength(failure, desiredMax)
+      || isPiLengthStopWithNoDeliverableOutput(failure);
+  }
+  return false;
 }

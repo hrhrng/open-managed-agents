@@ -9,6 +9,8 @@ import { SummarizeCompactionStrategy, resolveCompactionStrategy } from "./compac
 import type { CompactionStrategy } from "./compaction";
 import { ALL_TOOLS } from "./tools";
 import { llmLoggingMiddleware, llmLogKey } from "./llm-logging-middleware";
+import { readHarnessAgentModelSettings } from "./agent-model-settings";
+import { warnAiSdkHarnessDeprecatedOnce } from "./ai-sdk-deprecation";
 
 // Single source of truth lives in ./tools.ts (ALL_TOOLS). Importing here so
 // adding a new toolset entry can't drift the event-classification list — the
@@ -16,7 +18,7 @@ import { llmLoggingMiddleware, llmLogKey } from "./llm-logging-middleware";
 // `cancel_schedule`, and `list_schedules` to mis-emit as
 // `agent.custom_tool_use` instead of `agent.tool_use`.
 const BUILTIN_TOOLS = new Set(ALL_TOOLS);
-const isMcpTool = (name: string) => name.startsWith("mcp_");
+export const isMcpTool = (name: string) => name.startsWith("mcp_");
 // Exported so tests can assert classification directly. Returning true here
 // makes `runtime.broadcast` emit `agent.tool_use`; false routes to
 // `agent.custom_tool_use`. Down-stream consumers (Console UI, SDK event
@@ -112,6 +114,22 @@ function emitToolCallEvent(
   }
 }
 
+/** Shared wire mapping for Pi and AI SDK harness tool-call events. */
+export function emitHarnessToolUseFromCall(
+  runtime: HarnessContext["runtime"],
+  tools: Record<string, any>,
+  toolCallId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+): void {
+  emitToolCallEvent(runtime, tools, {
+    type: "tool-call",
+    toolCallId,
+    toolName,
+    input,
+  } as ContentPart<any> & { type: "tool-call" });
+}
+
 /**
  * Deterministic id for the `agent.thread_message_sent` event paired with
  * a given call_agent_* tool invocation. Lets the eventual
@@ -159,7 +177,7 @@ function emitToolResultEvent(
     runtime.broadcast({
       type: "agent.mcp_tool_result",
       mcp_tool_use_id: toolCallId,
-      content: typeof content === "string" ? content : JSON.stringify(content),
+      content,
       ...(part.type === "tool-error" && { is_error: true }),
       // v1-additive: causal predecessor is the matching agent.mcp_tool_use,
       // whose EventBase.id is set explicitly to toolCallId in
@@ -254,6 +272,12 @@ function normalizeToolOutputForWire(raw: unknown): string | ContentBlock[] {
   return JSON.stringify(raw);
 }
 
+/**
+ * Legacy agent loop built on the Vercel AI SDK (`generateText` + tool loop).
+ *
+ * @deprecated Use the default Pi harness (`harness` unset, `default`, or `pi`).
+ * Register explicitly via `harness: "ai-sdk"` only for backward compatibility.
+ */
 export class DefaultHarness implements HarnessInterface {
   /**
    * Compaction strategy resolved from agent config. Cached on the harness
@@ -264,6 +288,7 @@ export class DefaultHarness implements HarnessInterface {
 
   async run(ctx: HarnessContext): Promise<void> {
     const { agent, userMessage, runtime, tools, model, systemPrompt } = ctx;
+    warnAiSdkHarnessDeprecatedOnce(ctx.session_id ?? "unknown", (event) => { runtime.broadcast(event); });
     const providerOptions =
       typeof agent.model === "object"
         ? agent.model.provider_options as SharedV3ProviderOptions | undefined
@@ -349,6 +374,7 @@ export class DefaultHarness implements HarnessInterface {
     //    per-call timing + per-call usage that Anthropic's Managed Agents wire
     //    spec exposes.
     const modelId = typeof agent.model === "string" ? agent.model : agent.model.id;
+    const agentMaxTokens = readHarnessAgentModelSettings(agent.model)?.maxTokens;
 
     // 5. Run agent loop with retry + timeout + prompt caching.
     //
@@ -435,6 +461,7 @@ export class DefaultHarness implements HarnessInterface {
       try {
       const r = streamText({
       model: wrappedModel,
+      ...(agentMaxTokens !== undefined && { maxTokens: agentMaxTokens }),
       // Empty system prompt → omit entirely. Anthropic's API rejects an
       // empty `system` block ("system: text content blocks must be non-
       // empty"); the AI SDK forwards the empty string as a block instead

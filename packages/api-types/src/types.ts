@@ -52,6 +52,8 @@ export interface AgentConfig {
     inference_geo?: string;
     provider_options?: Record<string, unknown>;
     speed?: "standard" | "fast";
+    /** OMA: per-turn output token ceiling (catalog default when unset). */
+    max_tokens?: number;
   };
   system: string;
   tools: ToolConfig[];
@@ -135,6 +137,23 @@ export interface AgentConfig {
    * Resolved by session-do at init; empty/missing = no extra segments.
    */
   appendable_prompts?: string[];
+  /** OMA compaction policy (Anthropic Messages context_management shape). */
+  context_management?: {
+    edits: Array<{
+      type: "compact" | "compact_20260112";
+      trigger?: { type: "input_tokens"; value: number };
+      instructions?: string;
+      pause_after_compaction?: boolean;
+    }>;
+  };
+  /** OpenAI Agents SDK model_settings compaction shape (under `_oma` on API agents). */
+  model_settings?: {
+    max_tokens?: number;
+    context_management?: Array<{
+      type: "compaction";
+      compact_threshold: number;
+    }>;
+  };
   /**
    * Opt-in built-in delegation tool. When true, the harness exposes a
    * `general_subagent(task)` tool that spawns a generic sub-agent thread
@@ -457,7 +476,7 @@ export interface AgentMcpToolUseEvent extends EventBase {
 export interface AgentMcpToolResultEvent extends EventBase {
   type: "agent.mcp_tool_result";
   mcp_tool_use_id: string;
-  content: string;
+  content: string | ContentBlock[];
   is_error?: boolean;
 }
 

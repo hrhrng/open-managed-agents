@@ -416,6 +416,17 @@ const historySessionEventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.string().min(1),
+      type: z.literal("session.warning"),
+      session_thread_id: z.string().nullable().optional(),
+      source: z.string(),
+      message: z.string(),
+      processed_at: z.string(),
+      details: z.record(z.string(), z.json()).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
       type: z.literal("session.error"),
       session_thread_id: z.string().nullable().optional(),
       error: sessionExecutionErrorSchema,

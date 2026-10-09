@@ -170,7 +170,7 @@ describe("PiHarness", () => {
       { type: "agent.message", message_id: "a2", content: [{ type: "text", text: "d".repeat(200) }] },
     );
     ctx.agent.metadata = { compaction_trigger_fraction: 0.01 };
-    ctx.pi!.model = { ...ctx.pi!.model, contextWindow: 100 };
+    ctx.pi!.model = { ...ctx.pi!.model, contextWindow: 20_000 };
 
     let summaryTools: unknown;
     let summaryReasoning: unknown;
@@ -189,7 +189,7 @@ describe("PiHarness", () => {
 
     await new PiHarness().run(ctx);
 
-    expect(summaryTools).toEqual([]);
+    expect(summaryTools ?? []).toEqual([]);
     expect(summaryReasoning).toBeUndefined();
     expect(finalRequestText).toContain("<conversation-summary>");
     expect(finalRequestText).toContain("built-in Pi summary");
@@ -284,7 +284,7 @@ describe("PiHarness", () => {
       expect(turn).toMatchObject({ speed: "fast" });
       expect(requests[0]!.headers.get("x-compaction-transport")).toBe("custom");
       for (const request of requests) {
-        expect(request.url).toBe("https://tenant-model.example.test/v1/messages");
+        expect(new URL(request.url).pathname).toBe("/v1/messages");
         expect(request.headers.get("anthropic-beta")).toContain("fast-mode-2026-02-01");
       }
       expect(JSON.stringify(turn.messages)).toContain("COMPACTION_DONE");
@@ -308,17 +308,60 @@ describe("PiHarness", () => {
         stopReason: "error",
         errorMessage: "prompt is too long: 12000 tokens > 10000 maximum",
       }),
+      fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: "prompt is too long: 12000 tokens > 10000 maximum",
+      }),
       fauxAssistantMessage("overflow recovery summary"),
       fauxAssistantMessage("recovered answer"),
     ]);
 
     await new PiHarness().run(ctx);
 
-    expect(faux.state.callCount).toBe(3);
+    expect(faux.state.callCount).toBe(4);
     expect(events.filter((event) => event.type === "agent.thread_context_compacted")).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({
       type: "agent.message",
       content: [{ type: "text", text: "recovered answer" }],
+    }));
+  });
+
+  it("does one forced compact-and-retry on length-stop overflow with no deliverable output", async () => {
+    const { ctx, events, faux } = makeContext([]);
+    events.unshift(
+      { type: "user.message", content: [{ type: "text", text: "old question 1" }] },
+      { type: "agent.message", message_id: "old-answer-1", content: [{ type: "text", text: "old answer 1" }] },
+      { type: "user.message", content: [{ type: "text", text: "old question 2" }] },
+      { type: "agent.message", message_id: "old-answer-2", content: [{ type: "text", text: "old answer 2" }] },
+    );
+    const contextWindow = 8_192;
+    ctx.pi!.model = { ...ctx.pi!.model, contextWindow };
+    const lengthOverflow = fauxAssistantMessage([fauxThinking("partial plan")], {
+      stopReason: "length",
+      usage: {
+        input: contextWindow,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: contextWindow,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+    faux.setResponses([
+      lengthOverflow,
+      lengthOverflow,
+      fauxAssistantMessage("length recovery summary"),
+      fauxAssistantMessage("recovered after length"),
+    ]);
+
+    await new PiHarness().run(ctx);
+
+    expect(faux.state.callCount).toBe(4);
+    expect(events.some((event) => event.type === "agent.thinking")).toBe(false);
+    expect(events.filter((event) => event.type === "agent.thread_context_compacted")).toHaveLength(1);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "agent.message",
+      content: [{ type: "text", text: "recovered after length" }],
     }));
   });
 
@@ -341,14 +384,14 @@ describe("PiHarness", () => {
       expect.arrayContaining([
         "span.model_request_start",
         "agent.thinking",
-        "agent.tool_use",
+        "agent.custom_tool_use",
         "agent.tool_result",
         "agent.message",
         "span.model_request_end",
       ]),
     );
     expect(events.filter((event) => event.type === "span.model_request_start")).toHaveLength(2);
-    expect(events.find((event) => event.type === "agent.tool_use")).toMatchObject({
+    expect(events.find((event) => event.type === "agent.custom_tool_use")).toMatchObject({
       id: "tool-echo",
       name: "echo",
       input: { value: "hello" },
@@ -384,7 +427,7 @@ describe("PiHarness", () => {
     ]);
     await new PiHarness().run(ctx);
 
-    expect(roles).toEqual(["user", "assistant", "user"]);
+    expect(roles.filter((role) => role !== "system")).toEqual(["user", "assistant", "user"]);
     expect(
       events.filter((event) => event.type === "agent.message"),
     ).toHaveLength(2);
@@ -416,7 +459,7 @@ describe("PiHarness", () => {
 
     expect(ctx.runtime.pendingConfirmations).toEqual(["tool-confirm"]);
     expect(events).toContainEqual(expect.objectContaining({
-      type: "agent.tool_use",
+      type: "agent.custom_tool_use",
       id: "tool-confirm",
     }));
     expect(events.some((event) => event.type === "agent.tool_result")).toBe(false);

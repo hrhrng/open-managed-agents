@@ -840,7 +840,7 @@ const commands: Cmd[] = [
   {
     group: "Agents", match: ["agents", "create"],
     usage: "oma agents create <name> [--model <id>]", desc: "Create agent",
-    http: "POST   /v1/agents {name, model, system, tools, skills?, mcp_servers?, multiagent?, _oma?:{runtime_binding,harness,...}}",
+    http: "POST   /v1/agents {name, model, system, tools, skills?, mcp_servers?, multiagent?, _oma?:{runtime_binding,harness? (default Pi; ai-sdk deprecated),...}}",
     async run(config, args) {
       const name = flag(args, "--name") || args.find(a => !a.startsWith("--"));
       const model = flag(args, "--model") || "claude-sonnet-4-6";

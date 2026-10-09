@@ -559,8 +559,16 @@ export class DefaultNodeManagedSessionRunner
             await this.dependencies.buildHarness().run(harnessContext);
             return;
           } catch (error) {
+            if (!(error instanceof Error)) throw error;
             const sideEffectFree = runtime.agentEventCount === agentEventsBefore;
-            if (!sideEffectFree || attempt >= retry.attempts || abortController.signal.aborted) throw error;
+            if (
+              !sideEffectFree
+              || attempt >= retry.attempts
+              || abortController.signal.aborted
+              || isNonRetryableHarnessError(error)
+            ) {
+              throw error;
+            }
             runtime.broadcastProducedEvent({
               type: "session.error",
               error: {
@@ -780,3 +788,7 @@ export class DefaultNodeManagedSessionRunner
   }
 }
 
+/** Non-retryable harness failures use ConfigError (detected by error.name). */
+function isNonRetryableHarnessError(error: Error): boolean {
+  return error.name === "ConfigError";
+}

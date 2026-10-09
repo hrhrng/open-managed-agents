@@ -9,8 +9,11 @@ import {
   type Models,
 } from "@earendil-works/pi-ai";
 import type { HarnessRuntime } from "../src/harness/interface";
+import { resolveCompactionTriggerInputTokens } from "../src/harness/compaction-config";
 import {
   estimatePiMessagesTokens,
+  PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+  piCompactionInputBudget,
   PiSummaryCompactionPolicy,
   resolvePiCompactionPolicy,
 } from "../src/harness/pi-compaction";
@@ -77,16 +80,56 @@ describe("Pi compaction policy", () => {
     expect(resolvePiCompactionPolicy({ compaction_strategy: "none" }).name).toBe("cc-style");
     expect(resolvePiCompactionPolicy({ compaction_strategy: "opencode-style" }).name).toBe("opencode-style");
 
-    const low = resolvePiCompactionPolicy({ compaction_trigger_fraction: -1 });
+    const lowMeta = { compaction_trigger_fraction: -1 };
+    const low = resolvePiCompactionPolicy(lowMeta);
     expect(low.shouldCompact([], {
-      messages: [{ role: "user", content: "12345678", timestamp: 1 }],
-      contextWindowTokens: 100,
+      messages: [{ role: "user", content: "a".repeat(400), timestamp: 1 }],
+      model,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: resolveCompactionTriggerInputTokens(
+        model,
+        {},
+        lowMeta,
+      ),
     })).toBe(true);
-    const high = resolvePiCompactionPolicy({ compaction_trigger_fraction: 2 });
+    const highMeta = { compaction_trigger_fraction: 2 };
+    const high = resolvePiCompactionPolicy(highMeta);
     expect(high.shouldCompact([], {
       messages: [{ role: "user", content: "12345678", timestamp: 1 }],
-      contextWindowTokens: 100,
+      model,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: resolveCompactionTriggerInputTokens(
+        model,
+        {},
+        highMeta,
+      ),
     })).toBe(false);
+  });
+
+  it("reserves pi-ai output safety tokens when deciding to compact", () => {
+    const catalogModel = { ...model, contextWindow: 32_768, maxTokens: 8_192 };
+    expect(piCompactionInputBudget(catalogModel)).toBe(
+      32_768 - 8_192 - PI_CONTEXT_OUTPUT_RESERVE_TOKENS,
+    );
+    const policy = new PiSummaryCompactionPolicy("cc-style", { triggerFraction: 1 });
+    const checkModel = { ...model, contextWindow: 32_768, maxTokens: 8_192 };
+    const budget = piCompactionInputBudget(checkModel);
+    expect(policy.shouldCompact([], {
+      messages: [{ role: "user", content: "short", timestamp: 1 }],
+      model: checkModel,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: budget,
+    })).toBe(false);
+    expect(policy.shouldCompact([], {
+      messages: [{ role: "user", content: "x".repeat(200_000), timestamp: 1 }],
+      model: checkModel,
+      systemPrompt: "",
+      tools: [],
+      compactionTriggerInputTokens: budget,
+    })).toBe(true);
   });
 
   it("returns null without calling a model when history is too short", async () => {

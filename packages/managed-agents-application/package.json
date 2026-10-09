@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./agents-port": "./src/agents/port.ts",
+    "./agents/pi-model-catalog": "./src/agents/pi-model-catalog.ts",
     "./agents-persistence-port": "./src/compat/agents-persistence-port.ts",
     "./session-events-persistence-port": "./src/compat/session-events-persistence-port.ts",
     "./sessions-persistence-port": "./src/compat/sessions-persistence-port.ts",
@@ -18,6 +19,7 @@
     "@open-managed-agents/deployment-store": "workspace:*",
     "@open-managed-agents/deployment-run-store": "workspace:*",
     "@open-managed-agents/dream-store": "workspace:*",
+    "@earendil-works/pi-ai": "1.1.0",
     "@open-managed-agents/domain": "workspace:*",
     "@open-managed-agents/environment-store": "workspace:*",
     "@open-managed-agents/environment-work-store": "workspace:*",

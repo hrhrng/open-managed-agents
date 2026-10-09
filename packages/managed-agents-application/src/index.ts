@@ -1,4 +1,5 @@
 export * from "./agents/application";
+export * from "./agents/pi-model-catalog";
 export * from "./agents/definition-resolution";
 export * from "./agents/port";
 export * from "./domain/agent";

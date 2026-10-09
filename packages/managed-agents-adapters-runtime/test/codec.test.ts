@@ -61,8 +61,20 @@ describe("Managed session runtime codec", () => {
       processedAt: "2026-08-26T00:00:01.000Z",
     });
     expect(
-      decodeRuntimeEvent({ type: "session.warning", message: "extension" }, new Set()),
-    ).toEqual([]);
+      decodeRuntimeProducedSessionEvent({
+        id: "event_warn_01",
+        type: "session.warning",
+        source: "harness_deprecated",
+        message: "deprecated harness",
+        processed_at: "2026-08-26T00:00:01.000Z",
+      }),
+    ).toEqual({
+      id: "event_warn_01",
+      type: "session.warning",
+      source: "harness_deprecated",
+      message: "deprecated harness",
+      processedAt: "2026-08-26T00:00:01.000Z",
+    });
   });
 
   it.each(["agent.tool_result", "agent.mcp_tool_result"] as const)(

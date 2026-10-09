@@ -1,5 +1,5 @@
+import { registerCoreHarnesses } from "../../apps/agent/src/harness/builtins";
 import { registerHarness } from "../../apps/agent/src/harness/registry";
-import { DefaultHarness } from "../../apps/agent/src/harness/default-loop";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -72,7 +72,7 @@ describe("Cloudflare OpenAI Agents mount", () => {
       expect(history.data.filter(item => item.role === "user")).toHaveLength(2);
       expect(new Set(history.data.map(item => item.id)).size).toBe(history.data.length);
     } finally {
-      registerHarness("default", () => new DefaultHarness());
+      registerCoreHarnesses();
     }
   }, 30000);
 

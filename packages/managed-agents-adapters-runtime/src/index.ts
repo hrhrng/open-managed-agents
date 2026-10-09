@@ -64,7 +64,7 @@ export { ZipSkillPackageCompiler } from "./skill-package-compiler";
 export { WebCryptoTunnelCertificateAuthority } from "./webcrypto-tunnel-certificate-authority";
 export { WebCryptoTunnelTokenManager } from "./webcrypto-tunnel-token-manager";
 
-const OFFICIAL_RUNTIME_EVENT_TYPES = new Set([
+export const OFFICIAL_RUNTIME_EVENT_TYPES = new Set([
   "user.message",
   "user.interrupt",
   "user.tool_confirmation",
@@ -84,6 +84,7 @@ const OFFICIAL_RUNTIME_EVENT_TYPES = new Set([
   "agent.tool_use",
   "session.deleted",
   "session.error",
+  "session.warning",
   "session.status_idle",
   "session.status_rescheduled",
   "session.status_running",

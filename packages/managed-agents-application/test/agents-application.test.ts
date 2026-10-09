@@ -345,6 +345,101 @@ describe("AgentsApplicationService", () => {
     expect(cleared).not.toHaveProperty("agent.openma");
   });
 
+  it("persists Anthropic and OpenAI compaction wire shapes separately", async () => {
+    const service = new AgentsApplicationService({
+      workspaceId: "workspace_01",
+      store: new MemoryAgentStore(),
+      clock: { now: () => new Date("2026-08-26T00:00:00.000Z") },
+      ids: { nextAgentId: () => "agent_compact_anthropic" },
+    });
+
+    const anthropic = await service.createAgent({
+      name: "Anthropic compaction",
+      model: "claude-opus-5",
+      openma: {
+        contextManagement: {
+          edits: [
+            {
+              type: "compact",
+              trigger: { type: "input_tokens", value: 180_000 },
+            },
+          ],
+        },
+      },
+    });
+    expect(anthropic).toMatchObject({
+      type: "created",
+      agent: {
+        openma: {
+          contextManagement: {
+            edits: [{ type: "compact", trigger: { type: "input_tokens", value: 180_000 } }],
+          },
+          compactionWireFormat: "anthropic_context_management",
+        },
+      },
+    });
+    expect(anthropic).not.toMatchObject({
+      agent: { openma: { openaiModelSettings: expect.anything() } },
+    });
+
+    const openaiService = new AgentsApplicationService({
+      workspaceId: "workspace_01",
+      store: new MemoryAgentStore(),
+      clock: { now: () => new Date("2026-08-26T00:00:00.000Z") },
+      ids: { nextAgentId: () => "agent_compact_openai" },
+    });
+    const openai = await openaiService.createAgent({
+      name: "OpenAI compaction",
+      model: { id: "gpt-5" },
+      openma: {
+        openaiModelSettings: {
+          max_tokens: 8_192,
+          context_management: [{ type: "compaction", compact_threshold: 240_000 }],
+        },
+      },
+    });
+    expect(openai).toMatchObject({
+      type: "created",
+      agent: {
+        model: { id: "gpt-5", maxTokens: 8_192 },
+        openma: {
+          openaiModelSettings: {
+            max_tokens: 8_192,
+            context_management: [{ type: "compaction", compact_threshold: 240_000 }],
+          },
+          compactionWireFormat: "openai_model_settings",
+        },
+      },
+    });
+    expect(openai).not.toMatchObject({
+      agent: { openma: { contextManagement: expect.anything() } },
+    });
+
+    const oversizedMaxTokens = await service.createAgent({
+      name: "Large max tokens accepted",
+      model: { id: "deepseek-v4-flash", maxTokens: 1_000_000 },
+    });
+    expect(oversizedMaxTokens).toMatchObject({
+      type: "created",
+      agent: { model: { maxTokens: 1_000_000 } },
+    });
+
+    expect(
+      await openaiService.createAgent({
+        name: "Conflict",
+        model: "claude-opus-5",
+        openma: {
+          contextManagement: {
+            edits: [{ type: "compact", trigger: { type: "input_tokens", value: 100 } }],
+          },
+          openaiModelSettings: {
+            context_management: [{ type: "compaction", compact_threshold: 200 }],
+          },
+        },
+      }),
+    ).toMatchObject({ type: "invalid_request" });
+  });
+
   it("resolves toolset defaults and per-tool inheritance before persistence", async () => {
     const service = new AgentsApplicationService({
       workspaceId: "workspace_01",

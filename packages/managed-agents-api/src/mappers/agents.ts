@@ -45,6 +45,18 @@ function toOpenMaInput(extension: NonNullable<AgentCreateBody["_oma"]>) {
     ...(extension.appendable_prompts !== undefined && {
       appendablePrompts: extension.appendable_prompts,
     }),
+    ...(extension.context_management !== undefined && {
+      contextManagement:
+        extension.context_management === null
+          ? null
+          : structuredClone(extension.context_management),
+    }),
+    ...(extension.model_settings !== undefined && {
+      openaiModelSettings:
+        extension.model_settings === null
+          ? null
+          : structuredClone(extension.model_settings),
+    }),
     ...(extension.harness !== undefined && { harness: extension.harness }),
     ...(acp !== undefined && {
       acp:
@@ -119,6 +131,7 @@ export function toAgentModelInput(
       providerOptions: structuredClone(model.provider_options),
     }),
     ...(model.speed !== undefined && { speed: model.speed }),
+    ...(model.max_tokens != null && { maxTokens: model.max_tokens }),
   };
 }
 
@@ -233,6 +246,9 @@ export function toAgentResponse(agent: AgentView): object {
         provider_options: agent.model.providerOptions,
       }),
       ...(agent.model.speed !== undefined && { speed: agent.model.speed }),
+      ...(agent.model.maxTokens !== undefined && {
+        max_tokens: agent.model.maxTokens,
+      }),
     },
     multiagent:
       agent.multiagent === null

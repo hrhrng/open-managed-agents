@@ -50,6 +50,9 @@ jobs:
       - name: Protocol coverage gate
         run: pnpm test:coverage:protocol
 
+      - name: Harness web HTTP coverage gate (#281)
+        run: pnpm test:coverage:harness-web-http
+
       - name: Storage integration tests
         run: pnpm test:integration:storage
 

@@ -15,12 +15,15 @@ import { nanoid } from "nanoid";
 // Concrete adapters (CF / Node / CDP / Disabled) live in the package and
 // dynamic-import their workerd / Node peers only at first launch().
 import type { BrowserHarness, BrowserBillingHook } from "@open-managed-agents/browser-harness";
+import { fetchWebSearchGet, postTavilySearch, WEB_SEARCH_DDG_TIMEOUT_MS } from "./tool-http-fetch";
 import {
-  assertToolEgressAllowed,
-  toolEgressFetch,
-  toolEgressErrorMessage,
-  type ToolEgressNetworking,
-} from "@open-managed-agents/tool-egress";
+  fetchWebFetchUrl,
+  webFetchGuardError,
+  webFetchHttpErrorMessage,
+  WEB_FETCH_RAW_TIMEOUT_MS,
+  WEB_FETCH_TIMEOUT_MS,
+  type WebFetchNetworking,
+} from "./web-fetch-http";
 
 // Source of truth for which tool names are part of the agent_toolset_20260401
 // built-in suite. Used by buildTools() below to decide which tool entries to
@@ -364,7 +367,7 @@ export async function buildTools(
     toMarkdown?: ToMarkdownProvider;
     delegateToAgent?: (agentId: string, message: string) => Promise<string>;
     environmentConfig?: {
-      networking?: ToolEgressNetworking & {
+      networking?: WebFetchNetworking & {
         allow_mcp_servers?: boolean;
         allow_package_managers?: boolean;
       };
@@ -756,23 +759,20 @@ export async function buildTools(
           .describe("Truncate returned markdown to this many chars (default 50000)"),
       }),
       execute: safe(async ({ url, max_length }, toolOpts) => {
-        const egressNetworking: ToolEgressNetworking | undefined =
+        const fetchNetworking: WebFetchNetworking | undefined =
           env?.environmentConfig?.networking;
         const fetchOpts = {
-          networking: egressNetworking,
+          networking: fetchNetworking,
           abortSignal: toolOpts?.abortSignal,
-          timeoutMs: 20_000,
+          timeoutMs: WEB_FETCH_TIMEOUT_MS,
         };
         const fetchHeaders = {
           "User-Agent": "OMA-Agent/1.0 (+web_fetch)",
           Accept: "text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8",
         };
 
-        try {
-          await assertToolEgressAllowed(url, egressNetworking);
-        } catch (err) {
-          return `Error: ${toolEgressErrorMessage(err, fetchOpts.timeoutMs)}`;
-        }
+        const guardErr = webFetchGuardError(url, fetchNetworking);
+        if (guardErr) return guardErr;
 
         const cap = max_length || 50000;
         const truncate = (s: string) => (s.length > cap ? s.slice(0, cap) + `\n\n…[truncated to ${cap} chars]` : s);
@@ -786,7 +786,7 @@ export async function buildTools(
         let isRaw = false;
         if (env?.toMarkdown) {
           try {
-            const r = await toolEgressFetch(url, { headers: fetchHeaders }, fetchOpts);
+            const r = await fetchWebFetchUrl(url, { headers: fetchHeaders }, fetchOpts);
             if (r.ok) {
               const buf = await r.arrayBuffer();
               const ct = r.headers.get("content-type") || "text/html";
@@ -818,15 +818,15 @@ export async function buildTools(
         }
         if (markdown === null) {
           try {
-            const r = await toolEgressFetch(url, { headers: fetchHeaders }, {
+            const r = await fetchWebFetchUrl(url, { headers: fetchHeaders }, {
               ...fetchOpts,
-              timeoutMs: 30_000,
+              timeoutMs: WEB_FETCH_RAW_TIMEOUT_MS,
             });
             const body = await r.text();
             markdown = `[NOTE: markdown extraction unavailable for this URL — returning raw response. Look for the actual content between HTML tags.]\n\n${truncateResult(body.slice(0, cap))}`;
             isRaw = true;
           } catch (err) {
-            return `Error: ${toolEgressErrorMessage(err, 30_000)}`;
+            return `Error: ${webFetchHttpErrorMessage(err, WEB_FETCH_RAW_TIMEOUT_MS)}`;
           }
         }
 
@@ -1005,17 +1005,12 @@ export async function buildTools(
       }),
       execute: safe(async ({ query, max_results }, toolOpts) => {
         const count = max_results || 5;
-        const searchFetchOpts = {
-          abortSignal: toolOpts?.abortSignal,
-          timeoutMs: 20_000,
-        };
-        const ddgFetch = (target: string) =>
-          toolEgressFetch(target, {}, searchFetchOpts).catch((err) => {
-            throw new Error(toolEgressErrorMessage(err, searchFetchOpts.timeoutMs));
-          });
-
         // Step 1: Get VQD token from DuckDuckGo
-        const vqdRes = await ddgFetch(`https://duckduckgo.com/?${new URLSearchParams({ q: query, ia: "web" })}`);
+        const vqdRes = await fetchWebSearchGet(
+          `https://duckduckgo.com/?${new URLSearchParams({ q: query, ia: "web" })}`,
+          toolOpts?.abortSignal,
+          WEB_SEARCH_DDG_TIMEOUT_MS,
+        );
         if (!vqdRes.ok) return `DuckDuckGo error: ${vqdRes.status}`;
         const vqdText = await vqdRes.text();
         const vqd = /vqd=['"](\d+-\d+(?:-\d+)?)['"]/?.exec(vqdText)?.[1];
@@ -1026,7 +1021,11 @@ export async function buildTools(
           q: query, l: "en-us", kl: "wt-wt", s: "0", dl: "en",
           ct: "US", ss_mkt: "us", vqd, sp: "1", bpa: "1",
         });
-        const searchRes = await ddgFetch(`https://links.duckduckgo.com/d.js?${params}`);
+        const searchRes = await fetchWebSearchGet(
+          `https://links.duckduckgo.com/d.js?${params}`,
+          toolOpts?.abortSignal,
+          WEB_SEARCH_DDG_TIMEOUT_MS,
+        );
         if (!searchRes.ok) return `DuckDuckGo search error: ${searchRes.status}`;
         const body = await searchRes.text();
 
@@ -1067,21 +1066,16 @@ export async function buildTools(
           return "web_search unavailable: TAVILY_API_KEY not configured";
         let res: Response;
         try {
-          res = await toolEgressFetch(
-            "https://api.tavily.com/search",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                api_key: tavilyKey,
-                query,
-                max_results: max_results || 5,
-              }),
-            },
-            { abortSignal: toolOpts?.abortSignal, timeoutMs: 30_000 },
+          res = await postTavilySearch(
+            JSON.stringify({
+              api_key: tavilyKey,
+              query,
+              max_results: max_results || 5,
+            }),
+            toolOpts?.abortSignal,
           );
         } catch (err) {
-          return `Error: ${toolEgressErrorMessage(err, 30_000)}`;
+          return `Error: ${err instanceof Error ? err.message : String(err)}`;
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = (await res.json()) as any;

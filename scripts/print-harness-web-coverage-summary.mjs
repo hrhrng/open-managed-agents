@@ -69,7 +69,7 @@ console.log("| --- | --- | --- |");
 console.log(row("apps/agent/src/harness/web-fetch-http.ts", webFetch));
 console.log(row("apps/agent/src/harness/tool-http-fetch.ts", toolHttp));
 console.log(
-  `| \`apps/agent/src/harness/tools.ts\` (changed lines vs \`origin/main\`) | ${diff.lines} | ${diff.branches} |`,
+  `| \`apps/agent/src/harness/tools.ts\` (PR-changed lines vs base) | ${diff.lines} | ${diff.branches} |`,
 );
 const toolsWhole = entryFor(tools, "apps/agent/src/harness/tools.ts");
 if (toolsWhole) {

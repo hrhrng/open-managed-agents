@@ -8,6 +8,8 @@ import { planSkillExposure } from "../strategies/skill-exposure";
 import { buildToolCatalog } from "../catalog";
 import { resolveToolAssemblyConfig } from "../config";
 import { resolveSkillAssemblyConfig } from "../skill-config";
+import { resolveReassemblyConfig } from "../reassembly-config";
+import { resolvePostCompactionAssembly } from "../post-compaction-reassembly";
 import {
   broadcastLoadedToolNames,
   restoreLoadedToolNames,
@@ -96,6 +98,7 @@ function appendSkillSection(systemPrompt: string, section: string): string {
 export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const toolConfig = resolveToolAssemblyConfig(ctx.agent);
   const skillConfig = resolveSkillAssemblyConfig(ctx.agent);
+  const reassemblyConfig = resolveReassemblyConfig(ctx.agent);
   const deferredHints = createDeferredHintCoordinator(toolConfig.deferredHintStrategy);
   const exposure = createToolExposureStrategy();
   const search = createToolCatalogSearch();
@@ -103,10 +106,21 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
   const mountsById = new Map(skillMounts.map((mount) => [mount.skillId, mount]));
   const allTools = toolsToPi(ctx);
   const toolCatalog = buildToolCatalog(allTools);
-  const loadedTools = restoreLoadedToolNames(ctx.runtime.history.getEvents());
-  const loadedSkills = restoreLoadedSkillIds(ctx.runtime.history.getEvents());
+  const events = ctx.runtime.history.getEvents();
+  const loadedTools = restoreLoadedToolNames(events);
+  const loadedSkills = restoreLoadedSkillIds(events);
   const baseSystemPrompt = ctx.systemPrompt;
   const model = ctx.pi!.model;
+
+  const postCompaction = resolvePostCompactionAssembly({
+    events,
+    mounts: skillMounts,
+    loadedTools,
+    config: reassemblyConfig,
+    model,
+    broadcast: ctx.runtime.broadcast.bind(ctx.runtime),
+  });
+  const postCompactionSkillSection = postCompaction.skillRetentionSection;
 
   function combinedSearchCatalog(): ToolCatalogEntry[] {
     const liveSkillPlan = planSkillExposure({
@@ -237,7 +251,8 @@ export function createPiToolAssembly(ctx: HarnessContext): PiToolAssembly {
     plan: { toolSearchEnabled: boolean; deferredNames: string[] },
     skillSection: string,
   ): string {
-    const withSkills = appendSkillSection(baseSystemPrompt, skillSection);
+    const skillParts = [skillSection, postCompactionSkillSection].filter((s) => s.trim().length > 0);
+    const withSkills = appendSkillSection(baseSystemPrompt, skillParts.join("\n\n"));
     return deferredHints.augmentSystemPrompt(withSkills, plan);
   }
 

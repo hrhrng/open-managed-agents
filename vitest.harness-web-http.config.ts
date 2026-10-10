@@ -16,7 +16,7 @@ export default defineConfig({
         "apps/agent/src/harness/web-fetch-http.ts",
         "apps/agent/src/harness/tool-http-fetch.ts",
       ],
-      reporter: ["text", "json-summary"],
+      reporter: ["text", "json-summary", "lcov"],
       reportsDirectory: "coverage/harness-web-http",
       thresholds: {
         perFile: true,

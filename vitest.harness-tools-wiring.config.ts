@@ -20,7 +20,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["apps/agent/src/harness/tools.ts"],
-      reporter: ["text", "json", "json-summary"],
+      reporter: ["text", "json", "json-summary", "lcov"],
       reportsDirectory: "coverage/harness-tools-wiring",
     },
   },

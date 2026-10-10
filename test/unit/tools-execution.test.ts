@@ -505,43 +505,40 @@ describe("Built-in tool execution", () => {
     expect(modelOutput.value).toBe("hello world");
   });
 
-  it("web_fetch tool constructs curl with URL", async () => {
-    let capturedCmd = "";
-    const sandbox: any = {
-      exec: async (cmd: string) => {
-        capturedCmd = cmd;
-        return "exit=0\n<html></html>";
-      },
-      readFile: async () => "",
-      writeFile: async () => "ok",
-    };
+  it("web_fetch tool fetches URL via harness egress fetch", async () => {
+    const fetchMock = vi.fn(async () => new Response("<html>page</html>", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
+    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
+
+    const sandbox = new TestSandbox();
     const tools = await buildTools(makeAgentConfig(), sandbox);
 
-    await tools.web_fetch.execute(
+    const result = await tools.web_fetch.execute(
       { url: "https://example.com" },
       TOOL_EXEC_OPTS
     );
-    expect(capturedCmd).toContain("curl");
-    expect(capturedCmd).toContain("https://example.com");
+    expect(fetchMock).toHaveBeenCalled();
+    expect(String(result)).toContain("page");
+    setDnsResolveForTests(null);
+    vi.restoreAllMocks();
   });
 
   it("web_fetch tool respects max_length param", async () => {
-    let capturedCmd = "";
-    const sandbox: any = {
-      exec: async (cmd: string) => {
-        capturedCmd = cmd;
-        return "exit=0\ndata";
-      },
-      readFile: async () => "",
-      writeFile: async () => "ok",
-    };
-    const tools = await buildTools(makeAgentConfig(), sandbox);
+    const longBody = "x".repeat(5000);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(longBody, { status: 200 })));
+    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
+    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
 
-    await tools.web_fetch.execute(
+    const tools = await buildTools(makeAgentConfig(), new TestSandbox());
+
+    const result = await tools.web_fetch.execute(
       { url: "https://example.com", max_length: 1000 },
       TOOL_EXEC_OPTS
     );
-    expect(capturedCmd).toContain("head -c 1000");
+    expect(String(result).length).toBeLessThanOrEqual(1200);
+    setDnsResolveForTests(null);
+    vi.restoreAllMocks();
   });
 
   it("web_fetch passes auxiliary-model provider options to its summarize call", async () => {
@@ -564,6 +561,8 @@ describe("Built-in tool execution", () => {
     vi.stubGlobal("fetch", async () => new Response("<html>large</html>", {
       headers: { "content-type": "text/html" },
     }));
+    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
+    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
     try {
       const providerOptions = { anthropic: { thinking: { type: "disabled" } } };
       const tools = await buildTools(makeAgentConfig(), sandbox, {
@@ -580,6 +579,7 @@ describe("Built-in tool execution", () => {
 
       expect(auxModel.doGenerateCalls[0]?.providerOptions).toEqual(providerOptions);
     } finally {
+      setDnsResolveForTests(null);
       vi.unstubAllGlobals();
     }
   });

@@ -62,6 +62,7 @@
     "@open-managed-agents/session-wakeup-cloudflare": "workspace:*",
     "@open-managed-agents/sessions-store": "workspace:*",
     "@open-managed-agents/shared": "workspace:*",
+    "@open-managed-agents/tool-egress": "workspace:*",
     "@open-managed-agents/sql-client": "workspace:*",
     "@open-managed-agents/vaults-store": "workspace:*",
     "ai": "^7.0.123",

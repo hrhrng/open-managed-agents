@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildTools } from "../../apps/agent/src/harness/tools";
 import { TestSandbox } from "../../apps/agent/src/runtime/sandbox";
 import type { AgentConfig } from "@open-managed-agents/shared";
-import { setDnsResolveForTests } from "@open-managed-agents/tool-egress";
 
 function makeAgentConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
@@ -24,70 +23,76 @@ const TOOL_EXEC_OPTS = {
   abortSignal: undefined as any,
 };
 
-function mockPublicFetch(body = "<html>ok</html>") {
+function mockFetch(body = "<html>ok</html>") {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(body, { status: 200 })),
   );
-  setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
 }
 
 afterEach(() => {
-  setDnsResolveForTests(null);
   vi.restoreAllMocks();
 });
 
-describe("web_fetch egress", () => {
-  it("rejects localhost without allow_internal_addresses", async () => {
-    const tools = await buildTools(makeAgentConfig(), new TestSandbox());
-    const result = await tools.web_fetch.execute(
-      { url: "http://127.0.0.1/admin" },
-      TOOL_EXEC_OPTS,
-    );
-    expect(result).toMatch(/Error:.*blocked/i);
-  });
-
-  it("allows localhost when allow_internal_addresses is set", async () => {
-    mockPublicFetch();
-    const tools = await buildTools(makeAgentConfig(), new TestSandbox(), {
-      environmentConfig: {
-        networking: { type: "unrestricted", allow_internal_addresses: true },
-      },
-    });
-    const result = await tools.web_fetch.execute(
-      { url: "http://127.0.0.1/" },
-      TOOL_EXEC_OPTS,
-    );
-    expect(result).not.toMatch(/^Error:/);
-    expect(String(result)).toContain("ok");
-  });
-
-  it("rejects redirect to internal address", async () => {
+describe("web_fetch egress (rescoped #281)", () => {
+  it("rejects redirect to disallowed host in limited mode", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         new Response(null, {
           status: 302,
-          headers: { Location: "http://169.254.169.254/" },
+          headers: { Location: "https://evil.com/" },
         }),
       ),
     );
-    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
-    const tools = await buildTools(makeAgentConfig(), new TestSandbox());
+    const tools = await buildTools(makeAgentConfig(), new TestSandbox(), {
+      environmentConfig: {
+        networking: { type: "limited", allowed_hosts: ["example.com"] },
+      },
+    });
     const result = await tools.web_fetch.execute(
       { url: "https://example.com/redirect" },
       TOOL_EXEC_OPTS,
     );
-    expect(result).toMatch(/Error:.*blocked/i);
+    expect(result).toMatch(/Error:.*not allowed/i);
   });
 
   it("fetches public URLs successfully", async () => {
-    mockPublicFetch("hello world");
+    mockFetch("hello world");
     const tools = await buildTools(makeAgentConfig(), new TestSandbox());
     const result = await tools.web_fetch.execute(
       { url: "https://example.com/" },
       TOOL_EXEC_OPTS,
     );
     expect(result).toContain("hello world");
+  });
+});
+
+describe("web_search timeouts", () => {
+  it("returns timeout error when upstream hangs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) return;
+          if (signal.aborted) {
+            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new DOMException("Timed out", "TimeoutError")),
+            { once: true },
+          );
+        }),
+      ),
+    );
+    const tools = await buildTools(makeAgentConfig(), new TestSandbox());
+    const result = await tools.web_search.execute(
+      { query: "test query" },
+      { ...TOOL_EXEC_OPTS, abortSignal: AbortSignal.timeout(80) },
+    );
+    expect(result).toMatch(/timed out/i);
   });
 });

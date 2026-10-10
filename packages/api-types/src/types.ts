@@ -195,9 +195,6 @@ export interface EnvironmentConfig {
       allowed_hosts?: string[];
       allow_mcp_servers?: boolean;
       allow_package_managers?: boolean;
-      /** When true, agent tools (web_fetch, etc.) may reach private/link-local
-       *  addresses. Default false. Self-hosted operators opt in explicitly. */
-      allow_internal_addresses?: boolean;
     };
     /** Free-form Dockerfile body — RUN/COPY/ENV lines only. Required
      *  when `image_strategy === "dockerfile"`. The platform PREPENDS

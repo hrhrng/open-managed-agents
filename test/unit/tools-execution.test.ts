@@ -508,8 +508,6 @@ describe("Built-in tool execution", () => {
   it("web_fetch tool fetches URL via harness egress fetch", async () => {
     const fetchMock = vi.fn(async () => new Response("<html>page</html>", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
-    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
 
     const sandbox = new TestSandbox();
     const tools = await buildTools(makeAgentConfig(), sandbox);
@@ -520,15 +518,12 @@ describe("Built-in tool execution", () => {
     );
     expect(fetchMock).toHaveBeenCalled();
     expect(String(result)).toContain("page");
-    setDnsResolveForTests(null);
     vi.restoreAllMocks();
   });
 
   it("web_fetch tool respects max_length param", async () => {
     const longBody = "x".repeat(5000);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(longBody, { status: 200 })));
-    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
-    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
 
     const tools = await buildTools(makeAgentConfig(), new TestSandbox());
 
@@ -537,7 +532,6 @@ describe("Built-in tool execution", () => {
       TOOL_EXEC_OPTS
     );
     expect(String(result).length).toBeLessThanOrEqual(1200);
-    setDnsResolveForTests(null);
     vi.restoreAllMocks();
   });
 
@@ -561,8 +555,6 @@ describe("Built-in tool execution", () => {
     vi.stubGlobal("fetch", async () => new Response("<html>large</html>", {
       headers: { "content-type": "text/html" },
     }));
-    const { setDnsResolveForTests } = await import("@open-managed-agents/tool-egress");
-    setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
     try {
       const providerOptions = { anthropic: { thinking: { type: "disabled" } } };
       const tools = await buildTools(makeAgentConfig(), sandbox, {
@@ -579,7 +571,6 @@ describe("Built-in tool execution", () => {
 
       expect(auxModel.doGenerateCalls[0]?.providerOptions).toEqual(providerOptions);
     } finally {
-      setDnsResolveForTests(null);
       vi.unstubAllGlobals();
     }
   });

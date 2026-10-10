@@ -4,18 +4,15 @@ import { buildTools, getToolPermission } from "../../apps/agent/src/harness/tool
 import { TestSandbox } from "../../apps/agent/src/runtime/sandbox";
 import type { AgentConfig } from "@open-managed-agents/shared";
 import type { SandboxExecutor } from "../../apps/agent/src/harness/interface";
-import { setDnsResolveForTests } from "@open-managed-agents/tool-egress";
 
 function mockWebFetchNetwork() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response("<html>stub</html>", { status: 200 })),
   );
-  setDnsResolveForTests(async () => [{ address: "93.184.216.34", family: 4 }]);
 }
 
 afterEach(() => {
-  setDnsResolveForTests(null);
   vi.restoreAllMocks();
 });
 
